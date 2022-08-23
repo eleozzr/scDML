@@ -26,17 +26,17 @@ The following notebooks show you how to run scDML
 
 ## Intallation
 
-### step1 
+### Step1 
 
 1. Install [Anaconda](https://www.anaconda.com/products/individual) if you do not have it.
 2. Create a conda environment with python, and then activate it as follows in terminal.
 
-```python
+```bash
 conda create -n scDML python==3.6.10
 conda activate scDML
 ```
 
-### step2
+### Step2
 
 1. Install directly from Github using pip:
 ```bash 
@@ -78,7 +78,7 @@ jupyter notebook
 
 ## Software Requirements
 
-```python
+```bash
 numba==0.51.2
 numexpr==2.7.1
 numpy==1.18.1 
