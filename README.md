@@ -5,7 +5,6 @@
 scDML (Batch Alignment of **s**ingle **c**ell transcriptomics data using **D**eep **M**etric **L**earning) is designed for single cell transcriptomics data's clustering, which is a deep learning model based on [deep metric learning](https://kevinmusgrave.github.io/pytorch-metric-learning) to remove batch effect, guided by the initial clusters and MNN information intra and inter batches. In this manuscript, we proposed a strategy to merge initial clusters successively that takes batch effect into consideration, by computing the number of KNN pairs intra batch and MNN pairs inter batches, then calculating the similarity of clusters, and finally constructing a hierarchical tree, in which the root of the tree is the unique cluster obtained after gathering all clusters, and the leaves are the clusters to be merged. Thereafter, we used the above MNNs to guide information for building better low-dimensional embeddings. In this way, this procedure guarantees that scDML outperforms existing methods in terms of merging the same cell types, separating different cell types and preserving cell types unique to some batches.
 
 
-Workflow of scDML is below:
 
 ![](./images/workflow1.png)
 
