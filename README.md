@@ -1,34 +1,34 @@
 # scDML
 
-## overview
+## Overview
 
-scDML (Batch Alignment of **s**ingle **c**ell transcriptomics data using **D**eep **M**etric **L**earning) is designed for single cell transcriptomics data's clustering ,which is a novel method based on deep metric learning to remove batch effect, it is implemented with pytorch and utilizes the [pytroch_metric_learning](https://kevinmusgrave.github.io/pytorch-metric-learning/) package .  Workflow of scDML is below:
+scDML (Batch Alignment of **s**ingle **c**ell transcriptomics data using **D**eep **M**etric **L**earning) is designed for single cell transcriptomics data's clustering, which is a deep learning model based on [deep metric learning](https://kevinmusgrave.github.io/pytorch-metric-learning) to remove batch effect, guided by the initial clusters and MNN information intra and inter batches. In this manuscript, we proposed a strategy to merge initial clusters successively that takes batch effect into consideration, by computing the number of KNN pairs intra batch and MNN pairs inter batches, then calculating the similarity of clusters, and finally constructing a hierarchical tree, in which the root of the tree is the unique cluster obtained after gathering all clusters, and the leaves are the clusters to be merged. Thereafter, we used the above MNNs to guide information for building better low-dimensional embeddings. In this way, this procedure guarantees that scDML outperforms existing methods in terms of merging the same cell types, separating different cell types and preserving cell types unique to some batches.
+
+
+Workflow of scDML is below:
 
 ![](./images/workflow1.png)
 
-you can get more detail to see our manualscript.
+## Merge rule
 
-## merge rule
-
-scDML adopt  a novel merge rule to reassign cluster labels, which is crucial step in scDML method. you can this is the semantic dynamic display of merge rule ,which is the 
-
+scDML presents a novel merge rule to reassign cluster labels, which is important for scDML. Below figures illustrates that how to merge clusters hierarchically
 ![](./images/init_cluster.png)
-
 
 
 ![](./images/scDML_merge_rule.gif)
 
-## gettting started
+## Usage
+ 
+The following notebooks show you how to run scDML  
 
-see [tutorial1](./tutorial/tutorial1.ipynb) and  [tutorial2](./tutorial/tutorial2.ipynb) , where **tutorial1** gives a detailed discription in each step of scDML, while **tutorial 2** provides a complete running example 
+1. [tutorial1](./tutorial/tutorial1.ipynb) gives a detailed description in each step of scDML  
+2. [tutorial2](./tutorial/tutorial2.ipynb) provides a simple running example. 
 
-## installation(test on linux)
-
-recomended installation procedure is as follows.
+## Intallation
 
 ### step1 
 
-1. Install [Anaconda](https://www.anaconda.com/products/individual) if you do not already have it.
+1. Install [Anaconda](https://www.anaconda.com/products/individual) if you do not have it.
 2. Create a conda environment with python, and then activate it as follows in terminal.
 
 ```python
@@ -38,30 +38,43 @@ conda activate scDML
 
 ### step2
 
-you can install necessary requirments
+1. Install directly from Github using pip:
+```bash 
+pip install git+https://github.com/eleozzr/scDML.git
+```
 
-```python
-pip install -r requirements.txt -i https://pypi.douban.com/simple
-cd code
-python setup.py install --user
+2. Download the package from Github and install it locally:
+
+```bash
+git https://github.com/eleozzr/scDML
+cd scDML
+python setup.py install --user #or pip install 
+```
+or 
+```bash
+git https://github.com/eleozzr/scDML
+cd scDML
+python setup.py build
+python setup.py install
 ```
 
 or 
-
-```python
-####### pip install scDML(to be released)   #################
+```bash
+git https://github.com/eleozzr/scDML
+cd scDML
+pip install .
 ```
 
-### step3
+### Step3 (optional)
 
-create kernel to run the tutorial
+Run jupyter notebook under `scDML` environment
 
-```python
+```bash
 conda activate scDML
-python -m ipykernel install --name scDML
+pip install jupyter
+python -m ipykernel install --user --name scDML --display-name "Python_scDML" 
+jupyter notebook
 ```
-
-then you can run the tutorial.ipynb
 
 ## Software Requirements
 
@@ -87,4 +100,3 @@ torch>=1.10.1
 ```
 
 ## Citation
-
