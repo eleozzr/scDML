@@ -1,8 +1,7 @@
 from .data_preprocess import *
-from .calculate_NN import get_dict_mnn,get_dict_mnn_para
+from .calculate_NN import get_dict_mnn
 from .utils import *
 from .network import EmbeddingNet
-from .logger import create_logger
 import scanpy as sc 
 import os
 import torch.nn as nn
@@ -13,32 +12,32 @@ from time import time
 from scipy.sparse import issparse
 from tqdm import tqdm
 
-
 class scDMLModel:
     def __init__(self,verbose=True,save_dir="./results/"):
         """                               
         create scDMLModel object
         Argument:
         ------------------------------------------------------------------
-        - verbose: 'str',optional, Default,'True', write additional information to log file when verbose=True
+        - verbose: 'str',optional, Default,'False', It will print some additional information when verbose=True
+
         - save_dir: folder to save result
         ------------------------------------------------------------------
         """     
         self.verbose=verbose
         self.save_dir=save_dir 
  
+        if(os.path.exists(self.save_dir)):
+            print("Saving file folder exists")
+
         if not os.path.exists(self.save_dir): 
+            print("Create file folder to save results")
             os.makedirs(self.save_dir+"/")
-        
-        self.log = create_logger('',fh=self.save_dir+'log.txt')# create log file
-        if(self.verbose):
-            self.log.info("Create log file....") # write log information
-            self.log.info("Create scDMLModel Object Done....") 
+        print("==========Create scDMLModel Object Done....     ===================")
         
     def preprocess(self,adata,preprocessed=False,resolution=3.0,batch_key="BATCH",n_high_var = 1000,hvg_list=None,normalize_samples = True,target_sum=1e4,log_normalize = True,
-                   normalize_features = True,pca_dim=100,scale_value=10.0,cluster_method="louvain",num_cluster=50):
+                   normalize_features = True,pca_dim=100,scale_value=10.0,cluster_method="louvain"):
         """
-        Preprocessing raw dataset
+        Preprocessing raw dataset 
         Argument:
         ------------------------------------------------------------------
         - adata: `anndata.AnnData`, the annotated data matrix of shape (n_obs, n_vars). Rows correspond to cells and columns to genes.
@@ -64,23 +63,16 @@ class scDMLModel:
         - pca_dim: 'int', number of principal components
 
         - scale_value: parameter used in sc.pp.scale() which uses to truncate the outlier
-
-        - num_cluster
                 
         """
-        batch_key=checkInput(adata,batch_key,preprocessed,self.log)
+        batch_key=checkInput(adata,batch_key,preprocessed)
         self.batch_key=batch_key
         self.reso=resolution
-        self.cluster_method=cluster_method 
-        self.nbatch=len(adata.obs[batch_key].value_counts())
-
-        if(self.verbose):
-            self.log.info("clustering method={}".format(cluster_method))
-            self.log.info("resolution={}".format(str(resolution)))
+        self.cluster_method=cluster_method
+        self.method="scDML cluster_method=({})".format(cluster_method)   
 
         if(preprocessed):
-            if(self.verbose):
-                self.log.info("you have preprocessed the data which is suitable to scDML training")
+            print("you have preprocessed the data which is suitable to scDML training")
             if(issparse(adata.X)):  
                 self.train_X=adata.X.toarray()
             else:
@@ -89,33 +81,30 @@ class scDMLModel:
             self.emb_matrix=adata.obsm["X_pca"].copy()
             self.batch_index=adata.obs[batch_key].values
             self.merge_df=pd.DataFrame(adata.obs["init_cluster"])
-            self.norm_data=adata
         else:
-            if(self.verbose):
-                self.log.info("dataset is not preprocessed,run 'preprocess()' function to preprocess...")
-                self.log.info("Running preprocess() function...")
+            print("dataset is not preprocessed,run 'preprocess()' function to preprocess")
+            print("==========Running preprocess() function         ===================")
             if(batch_key is None):
                 batch_key=self.batch_key
 
-            self.norm_args = (batch_key,n_high_var,hvg_list,normalize_samples,target_sum,log_normalize, normalize_features,scale_value,self.verbose,self.log)
+            self.norm_args = (batch_key,n_high_var,hvg_list,normalize_samples,target_sum,log_normalize, normalize_features,scale_value,self.verbose)
             normalized_adata = Normalization(adata,*self.norm_args)
             self.batch_index=normalized_adata.obs[batch_key].values
             
-            emb=dimension_reduction(normalized_adata,pca_dim,self.verbose,self.log)
-            init_clustering(emb,reso=self.reso,cluster_method=cluster_method,verbose=self.verbose,log=self.log)
+            emb=dimension_reduction(normalized_adata,pca_dim,self.verbose)
+            init_clustering(emb,self.reso,cluster_method)
             self.emb_matrix=emb.X
-            if(issparse(normalized_adata.X)):  
-                self.train_X=normalized_adata.X.toarray() #
-            else:
-                self.train_X=normalized_adata.X.copy()
+            self.train_X= normalized_adata.X.copy()
             self.train_label= emb.obs["init_cluster"].values.copy()
             normalized_adata.obs["init_cluster"]=emb.obs["init_cluster"].values.copy()
             self.merge_df=pd.DataFrame(emb.obs["init_cluster"])
             self.num_init_cluster=len(emb.obs["init_cluster"].value_counts())
             self.norm_data=normalized_adata
-            if(self.verbose):
-                self.log.info("Preprocess Dataset Done...")
+            print("Preprocess Dataset Done...")
             return normalized_adata
+            # sc.pp.neighbors(norm_data)
+            # sc.tl.umap(norm_data)
+            # sc.pl.umap(norm_data,color=["BATCH"])
            
     def calculate_similarity(self,K_in=5,K_bw=10,K_in_metric="cosine",K_bw_metric="cosine"):
         """
@@ -131,41 +120,22 @@ class scDMLModel:
         """
         self.K_in=K_in
         self.K_bw=K_bw
-        if(self.verbose):
-            self.log.info("K_in={},K_bw={}".format(K_in,K_bw))
-            self.log.info("Calculate similarity of cluster with KNN and MNN")
-        if(self.nbatch<10):
-        #if(True):
-            if(self.verbose):
-                self.log.info("appoximate calculate KNN Pair intra batch...")
-            knn_intra_batch_approx=get_dict_mnn(data_matrix=self.emb_matrix,batch_index=self.batch_index,k=K_in,flag="in",metric=K_in_metric,approx=True,return_distance=False,verbose=self.verbose,log=self.log)
-            knn_intra_batch=np.array([list(i)for i in knn_intra_batch_approx])
-            if(self.verbose):
-                self.log.info("appoximate calculate MNN Pair inter batch...")
-            mnn_inter_batch_approx=get_dict_mnn(data_matrix=self.emb_matrix,batch_index=self.batch_index,k=K_bw,flag="out",metric=K_bw_metric,approx=True,return_distance=False,verbose=self.verbose,log=self.log)
-            mnn_inter_batch=np.array([list(i)for i in mnn_inter_batch_approx])
-            if(self.verbose):
-                self.log.info("Find All Nearest Neighbours Done....")   
-        else:
-            if(self.verbose):
-                self.log.info("calculate KNN and MNN pair in parallel mode!")
-                self.log.info("appoximate calculate KNN Pair intra batch...")
-            knn_intra_batch_approx=get_dict_mnn_para(data_matrix=self.emb_matrix,batch_index=self.batch_index,k=K_in,flag="in",metric=K_in_metric,approx=True,return_distance=False,verbose=self.verbose,log=self.log)
-            knn_intra_batch=np.array(knn_intra_batch_approx)
-            if(self.verbose):
-                self.log.info("appoximate calculate MNN Pair inter batch...")
-            mnn_inter_batch_approx=get_dict_mnn_para(data_matrix=self.emb_matrix,batch_index=self.batch_index,k=K_bw,flag="out",metric=K_bw_metric,approx=True,return_distance=False,verbose=self.verbose,log=self.log)
-            mnn_inter_batch=np.array(mnn_inter_batch_approx)
-            if(self.verbose):
-                self.log.info("Find All Nearest Neighbours Done....")   
+        print("==========Calculate similarity of cluster with KNN and MNN=========")
+        print("appoximate calculate KNN Pair intra batch...")
+        knn_intra_batch_approx,_ =get_dict_mnn(data_matrix=self.emb_matrix,batch_index=self.batch_index,k=K_in,flag="in",metric=K_in_metric,approx=True,return_distance=False,verbose=self.verbose)
+        knn_intra_batch=np.array([list(i)for i in knn_intra_batch_approx])
+        
+        print("appoximate calculate MNN Pair inter batch...")
+        mnn_inter_batch_approx,_=get_dict_mnn(data_matrix=self.emb_matrix,batch_index=self.batch_index,k=K_bw,flag="out",metric=K_bw_metric,approx=True,return_distance=False,verbose=self.verbose)
+        mnn_inter_batch=np.array([list(i)for i in mnn_inter_batch_approx])
+        print("Find All Nearest Neighbours Done....")   
 
-        if(self.verbose):
-            self.log.info("calculate similarity matrix between cluster")
-        self.cor_matrix,self.nn_matrix=cal_sim_matrix(knn_intra_batch,mnn_inter_batch,self.train_label,self.verbose,self.log)
-        if(self.verbose):
-            self.log.info("Calculate Similarity Matrix Done....")
+        print("calculate similarity matrix between cluster")
+        self.cor_matrix,self.nn_matrix=cal_sim_matrix(knn_intra_batch,mnn_inter_batch,self.train_label,self.verbose)
+        print("Calculate Similarity Matrix Done....")
         return knn_intra_batch,mnn_inter_batch,self.cor_matrix,self.nn_matrix
- 
+        # knn_diff_set=knn_set[norm_data.obs["init_cluster"][knn_set[:,0]].values!=norm_data.obs["init_cluster"][knn_set[:,1]].values]
+        # mnn_diff_set=mnn_set[norm_data.obs["init_cluster"][mnn_set[:,0]].values!=norm_data.obs["init_cluster"][mnn_set[:,1]].values]
         
     def merge_cluster(self,ncluster_list=[3],merge_rule="rule2"):
         """
@@ -184,8 +154,7 @@ class scDMLModel:
         dis_cluster=[str(i) for i in ncluster_list]
         df=self.merge_df.copy()
         df["value"]=np.ones(self.train_X.shape[0])
-        if(self.verbose):
-            self.log.info("scDML merge cluster with "+merge_rule+"....")
+        print("=================scDML merge cluster with "+merge_rule+"                 ===================")
         if(merge_rule=="rule1"):
             for n_cluster in ncluster_list:
                 map_set=merge_rule1(self.cor_matrix.copy(),self.num_init_cluster,n_cluster=n_cluster,save_dir=self.save_dir)
@@ -196,11 +165,11 @@ class scDMLModel:
                 self.merge_df["nc_"+str(n_cluster)]=self.merge_df["init_cluster"].map(map_dict)
                 df[str(n_cluster)]=str(n_cluster)+"("+self.merge_df["nc_"+str(n_cluster)].astype(str)+")"
                 if(self.verbose):
-                    self.log.info("merging cluster set:"+str(map_set)) #
+                    print("merging cluster set:",map_set) #
 
         if(merge_rule=="rule2"):
             for n_cluster in ncluster_list:
-                map_set=merge_rule2(self.cor_matrix.copy(),self.nn_matrix.copy(),self.merge_df["init_cluster"].value_counts().values.copy(),n_cluster=n_cluster,verbose=self.verbose,log=self.log)
+                map_set=merge_rule2(self.cor_matrix.copy(),self.nn_matrix.copy(),self.merge_df["init_cluster"].value_counts().values.copy(),n_cluster=n_cluster,verbose=self.verbose)
                 map_dict={}
                 for index,item in enumerate(map_set):
                     for c in item:
@@ -208,7 +177,7 @@ class scDMLModel:
                 self.merge_df["nc_"+str(n_cluster)]=self.merge_df["init_cluster"].map(map_dict)
                 df[str(n_cluster)]=str(n_cluster)+"("+self.merge_df["nc_"+str(n_cluster)].astype(str)+")"
                 if(self.verbose):
-                    self.log.info("merging cluster set:"+str(map_set)) #
+                    print("merging cluster set:",map_set) #
         return df
      
     def build_net(self, in_dim=1000,out_dim=32,emb_dim=[256],projection=False,project_dim=2,use_dropout=False,
@@ -230,15 +199,15 @@ class scDMLModel:
         ------------------------------------------------------------------
         """
         if(in_dim != self.train_X.shape[1]):
-            in_dim = self.train_X.shape[1]
-        if(self.verbose):
-            self.log.info("Build Embedding Net for scDML training")
+            print("the input dimension of Embedding net is not equal to the features of input data")
+            raise IOError
+        print("=================Build Embedding Net for scDML training         ===================")
         seed_torch(seed)
         self.model=EmbeddingNet(in_sz=in_dim,out_sz=out_dim,emb_szs=emb_dim,projection=projection,project_dim=project_dim,dp_list
                                 =dp_list,use_bn=use_bn,actn=actn)
         if(self.verbose):
-            self.log.info(self.model)
-            self.log.info("Build Embedding Net Done...")
+            print(self.model)
+        print("=================Build Embedding Net Done...                    ===================")
     
     def train(self,expect_num_cluster=None,merge_rule="rule2",num_epochs=50,batch_size=64,early_stop=False,
               metric="euclidean",margin=0.2,triplet_type="hard",device=None,save_model=True):
@@ -270,11 +239,10 @@ class scDMLModel:
         ------------------------------------------------------------------
         """
         if(expect_num_cluster is None): 
-            if(self.verbose):
-                self.log.info("expect_num_cluster is None, use default threshold...")
-            threshold=self.nn_matrix.to_numpy().sum()/(self.K_bw+self.K_in)/self.train_X.shape[0]/2.0
+            print("expect_num_cluster is None, use default threshold...")
+            threshold=self.nn_matrix.to_numpy().sum()/(self.K_bw+self.K_in)/self.train_X.shape[0]
             if(merge_rule == "rule2"):
-                map_set=merge_rule2(self.cor_matrix.copy(),self.nn_matrix.copy(),self.merge_df["init_cluster"].value_counts().values.copy(),verbose=self.verbose,threshold=threshold,log=self.log)
+                map_set=merge_rule2(self.cor_matrix.copy(),self.nn_matrix.copy(),self.merge_df["init_cluster"].value_counts().values.copy(),verbose=self.verbose,threshold=threshold)
                 expect_num_cluster=len(map_set)
                 map_dict={}
                 for index,item in enumerate(map_set):
@@ -291,24 +259,22 @@ class scDMLModel:
                 self.merge_df["nc_"+str(expect_num_cluster)]=self.merge_df["init_cluster"].map(map_dict)
         
         if("nc_"+str(expect_num_cluster) not in self.merge_df):
-            self.log.info("scDML can't find the mering result of cluster={} ,you can run merge_cluster(fixed_ncluster={}) function to get this".format(expect_num_cluster,expect_num_cluster))
+            print("scDML can't find the mering result of cluster={} ,you can run merge_cluster(fixed_ncluster={}) function to get this".format(expect_num_cluster,expect_num_cluster))
             raise IOError
         self.train_label=self.merge_df["nc_"+str(expect_num_cluster)].values.astype(int)
 
         if os.path.isfile(os.path.join(self.save_dir,"scDML_model.pkl")):
-            self.log.info("Loading trained model...")
+            print("Loading trained model...")
             self.model=torch.load(os.path.join(self.save_dir,"scDML_model.pkl"))
         else:
-            if(self.verbose):
-                self.log.info("train scDML(expect_num_cluster={}) with Embedding Net".format(expect_num_cluster))
-                self.log.info("expect_num_cluster={}".format(expect_num_cluster))
+            print("=================train scDML(expect_num_cluster={}) with Embedding Net==============".format(expect_num_cluster))
             if(device is None):
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
                 if(self.verbose):
                     if(torch.cuda.is_available()):
-                        self.log.info("using GPU to train model")
+                        print("using GPU to train model")
                     else:
-                        self.log.info("using CPU to train model")
+                        print("using CPU to train model")
                     
             train_set = torch.utils.data.TensorDataset(torch.FloatTensor(self.train_X), torch.from_numpy(self.train_label).long())
             train_loader = DataLoader(train_set, batch_size=batch_size, num_workers=0,shuffle=True)
@@ -319,8 +285,7 @@ class scDMLModel:
             elif(metric=="euclidean"):
                 distance=distances.LpDistance(p=2,normalize_embeddings=False) # use euclidean distance
             else:
-                self.log.info("Not implemented,to be updated")
-                raise IOError
+                pass
             reducer = reducers.ThresholdReducer(low = 0)#reducer: reduce the loss between all triplet(mean)
             #Define Loss function
             loss_func = losses.TripletMarginLoss(margin = margin, distance = distance, reducer = reducer)
@@ -328,7 +293,7 @@ class scDMLModel:
             mining_func = miners.TripletMarginMiner(margin = margin, distance = distance, type_of_triplets = triplet_type)
 
             if(self.verbose):        
-                self.log.info("use {} distance and {} triplet to train model".format(metric,triplet_type))
+                print("use {} distance and {} triplet to train model".format(metric,triplet_type))
             train_epoch_loss=np.array([])#
             mined_epoch_triplet=np.array([])#
             for epoch in range(1, num_epochs+1):
@@ -354,26 +319,22 @@ class scDMLModel:
                 mined_epoch_triplet=np.append(mined_epoch_triplet,temp_num_triplet)
                 train_epoch_loss=np.append(train_epoch_loss,temp_epoch_loss) 
                 if(self.verbose):
-                    self.log.info("epoch={},triplet_loss={},number_hard_triplet={}".format(epoch,temp_epoch_loss,temp_num_triplet))
+                    print("epoch={},triplet_loss={},number_hard_triplet={}".format(epoch,temp_epoch_loss,temp_num_triplet))
 
+            print("=================scDML training done...               ==============================")
             if(self.verbose):
-                self.log.info("scDML training done....")
-            # if(self.verbose):
-            #     print("plot number of mined triplets in all epochs")
-            #     plt.figure(figsize=(6,4))
-            #     plt.plot(range(1,len(mined_epoch_triplet)+1),mined_epoch_triplet,c="r")
-            #     plt.title("scDML loss(epoch)")
-            #     plt.xlabel("epoch")
-            #     plt.ylabel("mined hard triplets")
-            #     plt.savefig(self.save_dir+"/mined_num_triplet_epoch.png")
-            #     plt.show()
+                print("plot number of mined triplets in all epochs")
+                plt.figure(figsize=(6,4))
+                plt.plot(range(1,len(mined_epoch_triplet)+1),mined_epoch_triplet,c="r")
+                plt.title("scDML loss(epoch)")
+                plt.xlabel("epoch")
+                plt.ylabel("mined hard triplets")
+                plt.savefig(self.save_dir+"/mined_num_triplet_epoch.png")
+                plt.show()
             
             ##### save embedding model
             if(save_model):
-                if(self.verbose):
-                    self.log.info("save model....")
                 torch.save(self.model.to(torch.device("cpu")),os.path.join(self.save_dir,"scDML_model.pkl"))
-
         ##### generate embeding
         features=self.predict(self.train_X)
         embedding=sc.AnnData(features)
@@ -382,6 +343,10 @@ class scDMLModel:
         embedding.obs["reassign_cluster"]=self.train_label.astype(int).astype(str)
         embedding.obs["reassign_cluster"]=embedding.obs["reassign_cluster"].astype("category")
         return embedding
+        # if(do_umap):
+        #     print("calulate umap visulization for scDML embedding...")
+        #     sc.pp.neighbors(embedding,random_state=0)
+        #     sc.tl.umap(embedding)
 
     def predict(self,X):
         """
@@ -392,7 +357,7 @@ class scDMLModel:
         ------------------------------------------------------------------
         """
         if(self.verbose):
-            self.log.info("extract embedding for dataset with trained network")
+            print("============do prediction for dataset ==============")
         device=torch.device("cpu")    
         dataloader = DataLoader(
             torch.FloatTensor(X), batch_size=128, pin_memory=False, shuffle=False
@@ -411,23 +376,23 @@ class scDMLModel:
         return features
 
     ##### integrate all step into one function #####
-    def full_run(self,adata,resolution=3.0,ncluster_list=[3],expect_num_cluster=None,batch_key="BATCH",K_in=5,K_bw=10,cluster_method="louvain",merge_rule="rule2",preprocessed=False,num_epochs=50):
+    def full_run(self,adata,resolution=3.0,ncluster_list=[3],expect_num_cluster=None,batch_key="BATCH",celltype_key="celltype",K_in=5,K_bw=10,cluster_method="louvain",merge_rule="rule2"):
         # preprocess dataset
-        start_time=time()
-        self.preprocess(adata=adata,preprocessed=preprocessed,batch_key=batch_key,resolution=resolution,cluster_method=cluster_method)
-        print("preprocess done...cost time={}s".format(time()-start_time))    
+        #start_time=time()
+        self.preprocess(adata=adata,resolution=resolution,cluster_method=cluster_method)
+        #print("preprocess done...cost time={}s".format(time()-start_time))    
         # calculate similarity between cluster
         self.calculate_similarity(K_in=K_in,K_bw=K_bw)
-        print("calculate similarity matrix done...cost time={}s".format(time()-start_time))    
+        #print("calculate similarity matrix done...cost time={}s".format(time()-start_time))    
         # merge cluster and reassign cluster label
         self.merge_cluster(ncluster_list=ncluster_list,merge_rule=merge_rule)
-        print("reassign cluster label done...cost time={}s".format(time()-start_time))    
+        #print("reassign cluster label done...cost time={}s".format(time()-start_time))    
         # build Embeddding Net for scDML
         self.build_net()
-        print("construct network done...cost time={}s".format(time()-start_time))    
+        #print("construct network done...cost time={}s".format(time()-start_time))    
         # train scDML to remove batch effect
-        embedding=self.train(expect_num_cluster=expect_num_cluster,num_epochs=num_epochs)
-        print("train neural network done...cost time={}s".format(time()-start_time)) 
+        embedding=self.train(expect_num_cluster=expect_num_cluster)
+        #print("train neural network done...cost time={}s".format(time()-start_time)) 
         # evaluate scDML correction result
         #scdml_eva=self.evaluate(ncelltype=3)
         #print("all done")

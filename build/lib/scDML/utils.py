@@ -20,24 +20,6 @@ from IPython.display import display
 import plotly 
 import plotly.graph_objects as go
 from sklearn.metrics.cluster import adjusted_rand_score,normalized_mutual_info_score
-from sklearn.metrics.cluster import pair_confusion_matrix
-
-# sklearn ari bug
-def ari(labels_true,labels_pred): 
-    '''safer implementation of ari score calculation'''
-    (tn, fp), (fn, tp) = pair_confusion_matrix(labels_true, labels_pred)
-    tn=int(tn)
-    tp=int(tp)
-    fp=int(fp)
-    fn=int(fn)
-
-    # Special cases: empty data or full agreement
-    if fn == 0 and fp == 0:
-        return 1.0
-
-    return 2. * (tp * tn - fn * fp) / ((tp + fn) * (fn + tn) +
-                                       (tp + fp) * (fp + tn))
-
 
 ##### Find optimal resolution given ncluster #####
 def find_resolution(adata_, n_clusters, random):
@@ -75,7 +57,7 @@ def calulate_ari_nmi(adata_integrated,n_cluster=4):
 
 
 ###### print dataset information ######
-def print_dataset_information(adata,batch_key="BATCH",celltype_key="celltype",log=None):
+def print_dataset_information(adata,batch_key="BATCH",celltype_key="celltype"):
     if batch_key is not None and batch_key not in adata.obs.columns:
         print('Please check whether there is a {} column in adata.obs to identify batch information!'.format(batch_key))
         raise IOError
@@ -84,35 +66,30 @@ def print_dataset_information(adata,batch_key="BATCH",celltype_key="celltype",lo
         print('Please check whether there is a {} column in adata.obs to identify celltype information!'.format(celltype_key))
         raise IOError
     
-    if(log is not None):
-        log.info("===========print brief infomation of dataset ===============")
-        log.info("===========there are {} batchs in this dataset==============".format(len(adata.obs[batch_key].value_counts())))
-        log.info("===========there are {} celltypes with this dataset=========".format(len(adata.obs[celltype_key].value_counts())))
-    else:
-        print("===========print brief infomation of dataset ===============")
-        print("===========there are {} batchs in this dataset==============".format(len(adata.obs[batch_key].value_counts())))
-        print("===========there are {} celltypes with this dataset=========".format(len(adata.obs[celltype_key].value_counts())))
+    print("===========print brief infomation of dataset ===============")
+    print("===========there are {} batchs in this dataset==============".format(len(adata.obs[batch_key].value_counts())))
+    print("===========there are {} celltypes with this dataset=========".format(len(adata.obs[celltype_key].value_counts())))
     data_info=pd.crosstab(adata.obs[batch_key],adata.obs[celltype_key],margins=True,margins_name="Total")
     display(data_info)
 
 ##### check whether input is suitable for scDML preprocessing #####
-def checkInput(adata,batch_key,preprocessed,log):
+def checkInput(adata,batch_key,preprocessed):
     if(preprocessed):        
         if("init_cluster" not in adata.obs.columns):
-            log.info("scDML can't find normalized data in adata.layers,the preprocessed data matrix should be stored in adata.layers[\"normalized_input\"]")
+            print("scDML can't find normalized data in adata.layers,the preprocessed data matrix should be stored in adata.layers[\"normalized_input\"]")
             raise IOError
         if("X_pca" not in adata.obsm.keys()):
             raise IOError
 
     if not isinstance(adata,AnnData):
-        log.info("adata is not an object of AnnData,please convert Input data to Anndata")
+        print("adata is not an object of AnnData,please convert Input data to Anndata")
         raise IOError
     
     if batch_key is not None and batch_key not in adata.obs.columns:
-        log.info('Please check whether there is a {} column in adata.obs to identify batch information!'.format(batch_key))
+        print('Please check whether there is a {} column in adata.obs to identify batch information!'.format(batch_key))
         raise IOError
     elif batch_key is None:
-        log.info("scDML cretate \"BATCH\" column to set all cell to one batch!!!")
+        print("scDML cretate \"BATCH\" column to set all cell to one batch!!!")
         batch_key="BATCH"
         adata.obs[batch_key]="1" 
     
@@ -216,7 +193,7 @@ def merge_rule1(cor,num_init_cluster,n_cluster=None,threshold=None,save_dir=None
         return map_set
 
 ##### type of merging cluster(apply mean distance similar to hierarchical clustering) #####
-def merge_rule2(sim_matrix,NN_pair,cluster_size,n_cluster=None,verbose=False,threshold=None,log=None):
+def merge_rule2(sim_matrix,NN_pair,cluster_size,n_cluster=None,verbose=True,threshold=None):
     """
     sim_matrix:initization for merge
     NN-pair:calculate new cosine
@@ -226,7 +203,7 @@ def merge_rule2(sim_matrix,NN_pair,cluster_size,n_cluster=None,verbose=False,thr
     """
     if(threshold is None):
         if(verbose):
-            log.info("merge_rule2....")
+            print("merge_rule2(set ncluster={}).....".format(n_cluster))
         if(type(list(sim_matrix.columns)[0])!=str):
             temp_col_names=list(sim_matrix.columns)
             sim_matrix.columns=[str(i) for i in temp_col_names]
@@ -380,7 +357,7 @@ def merge_rule2(sim_matrix,NN_pair,cluster_size,n_cluster=None,verbose=False,thr
         return map_set
 
 ##### calculate similarity matrix of cluster with KNN and MNN #####
-def cal_sim_matrix(knn_in_batch,mnn_out_batch,cluster_label,verbose,log):
+def cal_sim_matrix(knn_in_batch,mnn_out_batch,cluster_label,verbose):
     """
     calculate similarity matrix of cluster with KNN and MNN
     
@@ -403,10 +380,10 @@ def cal_sim_matrix(knn_in_batch,mnn_out_batch,cluster_label,verbose,log):
         for col in list(knn_summary.columns):
             knn_table.loc[ind,col]=knn_summary.loc[ind,col]
     if(verbose):
-        log.info("delete inner edge which link same cluster")
+        print("delete inner edge which link same cluster")
     np.fill_diagonal(knn_table.values,0)
     if(verbose):
-        log.info("{} knn pair in batch link different cluster".format(np.sum(knn_table.values)))
+        print("{} knn pair in batch link different cluster".format(np.sum(knn_table.values)))
 
     if(len(mnn_out_batch)==0): # no mnn pair
         mnn_summary=pd.DataFrame(0, index=cluster_set, columns=cluster_set)
@@ -421,13 +398,13 @@ def cal_sim_matrix(knn_in_batch,mnn_out_batch,cluster_label,verbose,log):
         for col in list(mnn_summary.columns):
             mnn_table.loc[ind,col]=mnn_summary.loc[ind,col]
     if(verbose):
-        log.info("delete inner edge which link same cluster")
+        print("delete inner edge which link same cluster")
     np.fill_diagonal(mnn_table.values,0)
     if(verbose):
-        log.info("{} mnn pair in batch link different cluster".format(np.sum(mnn_table.values)))
-        log.info("===================================================================================") 
-        log.info("NN pair ratio(number of MNN pairs/number of KNN pairs)={}".format(np.sum(mnn_table.values)/np.sum(knn_table.values)))
-        log.info("===================================================================================") 
+        print("{} mnn pair in batch link different cluster".format(np.sum(mnn_table.values)))
+    print("===================================================================================") 
+    print("NN pair ratio(number of MNN pairs/number of KNN pairs)={}".format(np.sum(mnn_table.values)/np.sum(knn_table.values)))
+    print("===================================================================================") 
     ## calucate link conectivity between cluster
     sum_matrix=knn_table.values+mnn_table.values
     link_nn=knn_table + mnn_table

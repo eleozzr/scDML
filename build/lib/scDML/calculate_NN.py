@@ -10,8 +10,6 @@ import hnswlib
 from annoy import AnnoyIndex
 from sklearn.neighbors import NearestNeighbors
 import itertools
-from joblib import Parallel, delayed
-import time, math
 
 def nn_approx(ds1, ds2, names1, names2, knn=50, return_distance=False,metric="cosine",flag="in"):
     dim = ds2.shape[1]
@@ -165,7 +163,7 @@ def mnn(ds1, ds2, names1, names2, knn=20, save=False, approx=True,approx_method=
         if not return_distance:
             # mutal are set
             mutual = match1 | set([(b, a) for a, b in match1])
-            return mutual
+            return mutual,None
         else:
             # mutal are set
             mutual = set([(a, b) for a, b in match1.keys()]) | set([(b, a) for a, b in match2.keys()])
@@ -182,7 +180,7 @@ def mnn(ds1, ds2, names1, names2, knn=20, save=False, approx=True,approx_method=
             # change mnn pair to symmetric
             mutual = mutual | set([(b,a) for (a,b) in mutual])
             ####################################################
-            return mutual
+            return mutual,None
         else:
             # mutal are set
             mutual = set([(a, b) for a, b in match1.keys()]) & set([(b, a) for a, b in match2.keys()])
@@ -194,7 +192,7 @@ def mnn(ds1, ds2, names1, names2, knn=20, save=False, approx=True,approx_method=
 
 
 ## calculate KNN and MNN from data_matrix(embedding matrix) not anndata
-def get_dict_mnn(data_matrix, batch_index, k=5, save=True, approx=True,approx_method="hnswlib", verbose=False, return_distance=False,metric="cosine",flag="in",log=None):
+def get_dict_mnn(data_matrix, batch_index, k=5, save=True, approx=True,approx_method="hnswlib", verbose=True, return_distance=False,metric="cosine",flag="in"):
 
     #ipdb.set_trace()
     #assert type(adata) == sc.AnnData, "Please make sure `adata` is sc.AnnData"
@@ -209,9 +207,9 @@ def get_dict_mnn(data_matrix, batch_index, k=5, save=True, approx=True,approx_me
     if(flag=="in"):
         num_KNN=0
         if(verbose):
-            log.info("Calculate KNN pair intra batch...........")
-            log.info("K={}".format(k))
-            log.info("metric={}".format(metric))
+            print("Calculate KNN pair intra batch...........")
+            print("K={}".format(k))
+            print("metric={}".format(metric))
         for comb in list(itertools.combinations(range(len(cells_batch)), 1)):
             # comb=(2,3)
             i = comb[0]  # ith batch
@@ -219,7 +217,7 @@ def get_dict_mnn(data_matrix, batch_index, k=5, save=True, approx=True,approx_me
             if verbose:
                 i_batch = batch_unique[i]
                 j_batch = batch_unique[j]
-                log.info("Processing datasets: {} = {}".format((i, j), (i_batch, j_batch)))
+                print("Processing datasets: {} = {}".format((i, j), (i_batch, j_batch)))
             target = list(cells_batch[j])
             ref = list(cells_batch[i])
             #ds1 = adata[target].obsm[dr_name]
@@ -227,103 +225,52 @@ def get_dict_mnn(data_matrix, batch_index, k=5, save=True, approx=True,approx_me
             ds2=data_matrix[ref]
             names1 = target
             names2 = ref
-            match = mnn(ds1, ds2, names1, names2, knn=k, save=save, approx=approx,approx_method=approx_method, return_distance=return_distance,metric=metric,flag=flag)
+            match, distances = mnn(ds1, ds2, names1, names2, knn=k, save=save, approx=approx,approx_method=approx_method, return_distance=return_distance,metric=metric,flag=flag)
             mnns=mnns|match
-            #mnns_distance.append(distances) # not need
+            mnns_distance.append(distances)
             if verbose:
-                log.info("There are ({}) KNN pairs when processing {}={}".format(len(match),(i, j), (i_batch, j_batch)))
+                print("There are ({}) KNN pairs when processing {}={}".format(len(match),(i, j), (i_batch, j_batch)))
                 num_KNN=num_KNN+len(match)
         if(verbose):
-            log.info("scDML finds ({}) KNN pairs in dataset finally".format(num_KNN)) 
+            print("scDML finds ({}) KNN pairs in dataset finally".format(num_KNN)) 
         #print("done")        
         if not return_distance:
-            return mnns
+            return mnns, None
         else:
             return mnns, mnns_distance
     else:
         num_MNN=0
         if(verbose):
-            log.info("Calculate MNN pair inter batch...........")
-            log.info("K={}".format(k))
-            log.info("metric={}".format(metric))
+            print("Calculate MNN pair inter batch...........")
+            print("K={}".format(k))
+            print("metric={}".format(metric))
         for comb in list(itertools.combinations(range(len(cells_batch)), 2)):
             # comb=(2,3)
             i = comb[0]  # i batch
             j = comb[1]  # jth batch
-            if verbose:# if verbose
+            if verbose:
                 i_batch = batch_unique[i]
                 j_batch = batch_unique[j]
-                log.info("Processing datasets: {} = {}".format((i, j), (i_batch, j_batch)))
-
+                print("Processing datasets: {} = {}".format((i, j), (i_batch, j_batch)))
             target = list(cells_batch[j])
             ref = list(cells_batch[i])
             ds1 = data_matrix[target]
             ds2 = data_matrix[ref]
             names1 = target
             names2 = ref
-            match = mnn(ds1, ds2, names1, names2, knn=k, save=save, approx=approx,approx_method=approx_method, return_distance=return_distance,metric=metric,flag=flag)
+            match, distances = mnn(ds1, ds2, names1, names2, knn=k, save=save, approx=approx,approx_method=approx_method, return_distance=return_distance,metric=metric,flag=flag)
             mnns=mnns|match
-            #mnns_distance.append(distances)
+            mnns_distance.append(distances)
             if verbose:
-                log.info("There are ({}) MNN pairs when processing {}={}".format(len(match),(i, j), (i_batch, j_batch)))
+                print("There are ({}) MNN pairs when processing {}={}".format(len(match),(i, j), (i_batch, j_batch)))
                 num_MNN=num_MNN+len(match)
         if(verbose):
-            log.info("scDML finds ({}) MNN pairs in dataset finally".format(num_MNN))
+            print("scDML finds ({}) MNN pairs in dataset finally".format(num_MNN))
         #print("done")
         if not return_distance:
-            return mnns
+            return mnns, None
         else:
             return mnns, mnns_distance
-
-        
-## calculate KNN and MNN from data_matrix(embedding matrix) not anndata in parallel mode
-def get_dict_mnn_para(data_matrix, batch_index, k=5, save=True, approx=True,approx_method="hnswlib", verbose=False, return_distance=False,metric="cosine",flag="in",njob=8,log=None):
-
-    #ipdb.set_trace()
-    #assert type(adata) == sc.AnnData, "Please make sure `adata` is sc.AnnData"
-    cell_names = np.array(range(len(data_matrix)))
-    #batch_list = adata.obs[batch_key] if batch_key in adata.obs.columns else np.ones(adata.shape[0], dtype=str)
-    batch_unique = np.unique(batch_index)
-    cells_batch = []
-    for i in batch_unique:
-        cells_batch.append(cell_names[batch_index == i])
-    mnns = set()
-    mnns_distance = []
-    if(flag=="in"):
-        num_KNN=0
-        if(verbose):
-            log.info("Calculate KNN pair intra batch...........")
-            log.info("K={}".format(k))
-            log.info("metric={}".format(metric))
-     
-        res = Parallel(n_jobs=njob)(delayed(mnn)(data_matrix[list(cells_batch[comb[0]])],data_matrix[list(cells_batch[comb[0]])] , list(cells_batch[comb[0]]), list(cells_batch[comb[0]]), knn=k, save=save, approx=approx,approx_method=approx_method, return_distance=return_distance,metric=metric,flag=flag) for comb in list(itertools.combinations(range(len(cells_batch)), 1)))
-
-        mnns=list(itertools.chain(*res))
-        if(verbose):
-            log.info("scDML finds ({}) KNN pairs in dataset finally".format(len(mnns))) 
-        #print("done")        
-        if not return_distance:
-            return mnns
-        else:
-            return mnns, mnns_distance
-    else:
-        num_MNN=0
-        if(verbose):
-            log.info("Calculate MNN pair inter batch...........")
-            log.info("K={}".format(k))
-            log.info("metric={}".format(metric))
-
-        res = Parallel(n_jobs=njob)(delayed(mnn)(data_matrix[list(cells_batch[comb[1]])],data_matrix[list(cells_batch[comb[0]])] , list(cells_batch[comb[1]]), list(cells_batch[comb[0]]), knn=k, save=save, approx=approx,approx_method=approx_method, return_distance=return_distance,metric=metric,flag=flag) for comb in list(itertools.combinations(range(len(cells_batch)), 2)))
-
-        mnns=list(itertools.chain(*res))
-        if(verbose):
-            log.info("scDML finds ({}) MNN pairs in dataset finally".format(num_MNN))
-        #print("done")
-        if not return_distance:
-            return mnns
-        else:
-            return mnns, mnns_distance
-
 
 
 

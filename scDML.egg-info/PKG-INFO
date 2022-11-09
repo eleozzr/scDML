@@ -1,3 +1,19 @@
+Metadata-Version: 2.1
+Name: scDML
+Version: 0.0.1
+Summary: Batch Alignment of single-cell transcriptomics data using Deep Metric Learning.
+Home-page: https://github.com/eleozzr/scDML
+Author: xiaokangyu
+Author-email: yuxiaokang2018@163.com
+License: UNKNOWN
+Platform: UNKNOWN
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+License-File: LICENSE
+
 # scDML
 
 ## Overview
@@ -17,7 +33,7 @@ scDML presents a novel merge rule to reassign cluster labels, which is important
 ![](./images/scDML_merge_rule.gif)
 
 ## Usage
-
+ 
 The following notebooks show you how to run scDML  
 
 1. [tutorial1](./tutorial/tutorial1.ipynb) gives a detailed description in each step of scDML  
@@ -45,13 +61,13 @@ pip install git+https://github.com/eleozzr/scDML.git
 2. Download the package from Github and install it locally:
 
 ```bash
-git clone https://github.com/eleozzr/scDML
+git https://github.com/eleozzr/scDML
 cd scDML
 python setup.py install --user #or pip install 
 ```
 or 
 ```bash
-git clone https://github.com/eleozzr/scDML
+git https://github.com/eleozzr/scDML
 cd scDML
 python setup.py build
 python setup.py install
@@ -59,7 +75,7 @@ python setup.py install
 
 or 
 ```bash
-git clone https://github.com/eleozzr/scDML
+git https://github.com/eleozzr/scDML
 cd scDML
 pip install .
 ```
@@ -99,3 +115,5 @@ torch>=1.10.1
 ```
 
 ## Citation
+
+
