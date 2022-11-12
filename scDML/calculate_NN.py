@@ -317,7 +317,7 @@ def get_dict_mnn_para(data_matrix, batch_index, k=5, save=True, approx=True,appr
 
         mnns=list(itertools.chain(*res))
         if(verbose):
-            log.info("scDML finds ({}) MNN pairs in dataset finally".format(num_MNN))
+            log.info("scDML finds ({}) MNN pairs in dataset finally".format(len(mnns)))
         #print("done")
         if not return_distance:
             return mnns

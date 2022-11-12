@@ -125,25 +125,30 @@ def init_clustering(emb,reso=3.0,cluster_method="louvain",num_cluster=50,verbose
             log.info("Apply louvain clustring(resolution={}) initization".format(reso))
             log.info("Number of Cluster ={}".format(len(emb.obs["init_cluster"].value_counts())))
             log.info("clusters={}".format([i for i in range(len(emb.obs["init_cluster"].value_counts()))]))
-    if(cluster_method=="leiden"):
+    elif(cluster_method=="leiden"):
         sc.pp.neighbors(emb,random_state=0)
         sc.tl.leiden(emb,resolution=reso,key_added="init_cluster")
         if(verbose):
             log.info("Apply leiden clustring(resolution={})  initization".format(reso))
             log.info("Number of Cluster ={}".format(len(emb.obs["init_cluster"].value_counts())))
             log.info("clusters={}".format([i for i in range(len(emb.obs["init_cluster"].value_counts()))]))
-    if(cluster_method=="kmeans"):
+    elif(cluster_method=="kmeans"):
         kmeans = KMeans(n_clusters=num_cluster, random_state=0).fit(emb.X) 
         emb.obs['init_cluster'] = kmeans.labels_.astype(str)
         emb.obs['init_cluster'] = emb.obs['init_cluster'].astype("category")   
         if(verbose):
             log.info("Apply kmeans clustring(num_cluster={}) initization".format(num_cluster))
-    if(cluster_method=="minibatch-kmeans"): # this cluster method will reduce time and memory but less accuracy
+    elif(cluster_method=="minibatch-kmeans"): # this cluster method will reduce time and memory but less accuracy
         kmeans = MiniBatchKMeans(init='k-means++',n_clusters=num_cluster,random_state=0,batch_size=64).fit(emb.X)
         emb.obs['init_cluster'] = kmeans.labels_.astype(str)
         emb.obs['init_cluster'] = emb.obs['init_cluster'].astype("category")
         if(verbose):
             log.info("Apply minibatch-kmeans clustring(num_cluster={}) initization".format(num_cluster))
+    else:
+        if(verbose):
+            log.info("Not implemented!!!")
+        raise IOError
+
         
 
 

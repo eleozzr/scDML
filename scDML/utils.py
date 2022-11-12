@@ -22,7 +22,7 @@ import plotly.graph_objects as go
 from sklearn.metrics.cluster import adjusted_rand_score,normalized_mutual_info_score
 from sklearn.metrics.cluster import pair_confusion_matrix
 
-# sklearn ari bug
+# sklearn ari bug,generate negative value for large dataset
 def ari(labels_true,labels_pred): 
     '''safer implementation of ari score calculation'''
     (tn, fp), (fn, tp) = pair_confusion_matrix(labels_true, labels_pred)
@@ -96,13 +96,7 @@ def print_dataset_information(adata,batch_key="BATCH",celltype_key="celltype",lo
     display(data_info)
 
 ##### check whether input is suitable for scDML preprocessing #####
-def checkInput(adata,batch_key,preprocessed,log):
-    if(preprocessed):        
-        if("init_cluster" not in adata.obs.columns):
-            log.info("scDML can't find normalized data in adata.layers,the preprocessed data matrix should be stored in adata.layers[\"normalized_input\"]")
-            raise IOError
-        if("X_pca" not in adata.obsm.keys()):
-            raise IOError
+def checkInput(adata,batch_key,log):
 
     if not isinstance(adata,AnnData):
         log.info("adata is not an object of AnnData,please convert Input data to Anndata")
@@ -614,71 +608,6 @@ def plotSankey(df,cat_cols=[],value_cols='',title='Sankey Diagram'):
             )
     return fig
 
-##### plot embedding #####
-def visulize_encode(X,cluster_group,true_group,batch,epoch=-1,save_dir=None,save_embedding=False,flag="Full"):
-    if(X.shape[1]==2):# if embedding is 2D dimension
-        sc_data=sc.AnnData(X)
-        sc_data.obs["cluster_celltype"]=cluster_group.astype(str);
-        sc_data.obs["true_celltype"]=true_group.astype(str)
-        sc_data.obs["batch"]=batch.astype(str);
-        sc_data.obsm["X_proj"]=X
-        fig, axs = plt.subplots(1, 3, figsize=(30,8),constrained_layout=True)
-        sc.pl.embedding(sc_data,basis="proj",color=["cluster_celltype"],size=50,legend_fontsize=20,show=False,ax=axs[0])
-        axs[0].patch.set_alpha(1)
-        axs[0].set_title('scDML cluster', fontdict={'fontsize': 25, 'fontweight': 'medium'})
-        axs[0].set_xlabel(xlabel="X1",fontsize=25)
-        axs[0].set_ylabel(ylabel="X2",fontsize=25)
-        
-        sc.pl.embedding(sc_data,basis="proj",color=["batch"],size=50,show=False,legend_fontsize=20,ax=axs[1])
-        axs[1].patch.set_alpha(1)
-        axs[1].set_title('BATCH', fontdict={'fontsize': 25, 'fontweight': 'medium'})
-        axs[1].set_xlabel(xlabel="X1",fontsize=25)
-        axs[1].set_ylabel(ylabel="X2",fontsize=25)
-    
-        sc.pl.embedding(sc_data,basis="proj",color=["true_celltype"],size=50,show=False,legend_fontsize=20,ax=axs[2])
-        axs[2].patch.set_alpha(1)
-        axs[2].set_title('true celltype', fontdict={'fontsize': 25, 'fontweight': 'medium'})
-        axs[2].set_xlabel(xlabel="X1",fontsize=25)
-        axs[2].set_ylabel(ylabel="X2",fontsize=25)
-        plt.savefig(save_dir+"/scDML_epoch_{}".format(epoch)+"_proj.png")
-        plt.show()
-    else:    
-        sc_data=sc.AnnData(X)
-        sc_data.obs["cluster_celltype"]=cluster_group.astype(str);
-        sc_data.obs["true_celltype"]=true_group.astype(str)
-        sc_data.obs["batch"]=batch.astype(str);
-        sc.pp.neighbors(sc_data,random_state=0)
-        sc.tl.umap(sc_data)
-        fig, axs = plt.subplots(1, 3, figsize=(30,8),constrained_layout=True)
-        sc.pl.umap(sc_data,color=["cluster_celltype"],size=50,legend_fontsize=20,show=False,ax=axs[0])
-        axs[0].patch.set_alpha(1)
-        axs[0].set_title('scDML cluster', fontdict={'fontsize': 25, 'fontweight': 'medium'})
-        axs[0].set_xlabel(xlabel="UMAP1",fontsize=25)
-        axs[0].set_ylabel(ylabel="UMAP2",fontsize=25)
-        
-        sc.pl.umap(sc_data,color=["batch"],size=50,show=False,legend_fontsize=20,ax=axs[1])
-        axs[1].patch.set_alpha(1)
-        axs[1].set_title('BATCH', fontdict={'fontsize': 25, 'fontweight': 'medium'})
-        axs[1].set_xlabel(xlabel="UMAP1",fontsize=25)
-        axs[1].set_ylabel(ylabel="UMAP2",fontsize=25)
-    
-        sc.pl.umap(sc_data,color=["true_celltype"],size=50,show=False,legend_fontsize=20,ax=axs[2])
-        axs[2].patch.set_alpha(1)
-        axs[2].set_title('true celltype', fontdict={'fontsize': 25, 'fontweight': 'medium'})
-        axs[2].set_xlabel(xlabel="UMAP1",fontsize=25)
-        axs[2].set_ylabel(ylabel="UMAP2",fontsize=25)
-        if(flag=="Full"):
-            plt.savefig(save_dir+"/scDML_epoch_{}".format(epoch)+"_Full_dataset.png")
-        else:
-            plt.savefig(save_dir+"/scDML_epoch_{}".format(epoch)+"_Sample_dataset.png")
-        plt.show()   
-    if(save_embedding):
-        scDML_corrected=sc.AnnData(X)
-        scDML_corrected.obs["celltype"]=true_group.astype(str)
-        scDML_corrected.obs["BATCH"]=batch.astype(str)
-        scDML_corrected.obsm["X_emb"]=scDML_corrected.X
-        scDML_corrected.write(save_dir+"/scDML_epoch_{}_corrected.h5ad".format(epoch))
- 
 
 
 

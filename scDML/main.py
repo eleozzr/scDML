@@ -2,18 +2,20 @@ from .data_preprocess import *
 from .calculate_NN import get_dict_mnn,get_dict_mnn_para
 from .utils import *
 from .network import EmbeddingNet
-from .logger import create_logger
-import scanpy as sc 
+from .logger import create_logger       ## import logger
+from .pytorchtools import EarlyStopping ## import earlytopping
+
 import os
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader
-from pytorch_metric_learning import losses, miners,reducers,distances
 from time import time
 from scipy.sparse import issparse
 from tqdm import tqdm
 
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader
+from pytorch_metric_learning import losses, miners,reducers,distances
 
+## create scDMLmodel
 class scDMLModel:
     def __init__(self,verbose=True,save_dir="./results/"):
         """                               
@@ -21,7 +23,7 @@ class scDMLModel:
         Argument:
         ------------------------------------------------------------------
         - verbose: 'str',optional, Default,'True', write additional information to log file when verbose=True
-        - save_dir: folder to save result
+        - save_dir: folder to save result and log information
         ------------------------------------------------------------------
         """     
         self.verbose=verbose
@@ -34,19 +36,20 @@ class scDMLModel:
         if(self.verbose):
             self.log.info("Create log file....") # write log information
             self.log.info("Create scDMLModel Object Done....") 
-        
-    def preprocess(self,adata,preprocessed=False,resolution=3.0,batch_key="BATCH",n_high_var = 1000,hvg_list=None,normalize_samples = True,target_sum=1e4,log_normalize = True,
-                   normalize_features = True,pca_dim=100,scale_value=10.0,cluster_method="louvain",num_cluster=50):
+    
+    ###  preprocess raw data to generate init cluster label 
+    def preprocess(self,adata,cluster_method="louvain",resolution=3.0,batch_key="BATCH",n_high_var = 1000,hvg_list=None,normalize_samples = True,target_sum=1e4,log_normalize = True,
+                   normalize_features = True,pca_dim=100,scale_value=10.0,num_cluster=50):
         """
         Preprocessing raw dataset
         Argument:
         ------------------------------------------------------------------
         - adata: `anndata.AnnData`, the annotated data matrix of shape (n_obs, n_vars). Rows correspond to cells and columns to genes.
 
-        - preprocessed: `bool`, default, False, It indicate  whether the adata have been preprocesed(normalized).
+        - cluster_method: "str", the clustering algorithm to initizite celltype label["louvain","leiden","kmeans","minibatch-kmeans"]
 
         - resolution:'np.float', default:3.0, the resolution of louvain algorthm for scDML to initialize clustering
-         
+
         - batch_key: `str`, string specifying the name of the column in the observation dataframe which identifies the batch of each cell. If this is left as None, then all cells are assumed to be from one batch.
     
         - n_high_var: `int`, integer specifying the number of genes to be idntified as highly variable. E.g. if n_high_var = 1000, then the 1000 genes with the highest variance are designated as highly variable.
@@ -65,58 +68,61 @@ class scDMLModel:
 
         - scale_value: parameter used in sc.pp.scale() which uses to truncate the outlier
 
-        - num_cluster
-                
+        - num_cluster: "np.int", K parameter of kmeans
+
+        Return:
+        - normalized adata suitable for integration of scDML in following stage.  
         """
-        batch_key=checkInput(adata,batch_key,preprocessed,self.log)
+        batch_key=checkInput(adata,batch_key,self.log)
         self.batch_key=batch_key
         self.reso=resolution
         self.cluster_method=cluster_method 
         self.nbatch=len(adata.obs[batch_key].value_counts())
-
-        if(self.verbose):
+        if(self.verbose):        
+            self.log.info("Running preprocess() function...")
             self.log.info("clustering method={}".format(cluster_method))
             self.log.info("resolution={}".format(str(resolution)))
+            self.log.info("BATCH_key={}".format(str(batch_key)))
 
-        if(preprocessed):
-            if(self.verbose):
-                self.log.info("you have preprocessed the data which is suitable to scDML training")
-            if(issparse(adata.X)):  
-                self.train_X=adata.X.toarray()
-            else:
-                self.train_X=adata.X.copy()
-            self.train_label=adata.obs["init_cluster"].values.copy()
-            self.emb_matrix=adata.obsm["X_pca"].copy()
-            self.batch_index=adata.obs[batch_key].values
-            self.merge_df=pd.DataFrame(adata.obs["init_cluster"])
-            self.norm_data=adata
+        self.norm_args = (batch_key,n_high_var,hvg_list,normalize_samples,target_sum,log_normalize, normalize_features,scale_value,self.verbose,self.log)
+        normalized_adata = Normalization(adata,*self.norm_args)
+        emb=dimension_reduction(normalized_adata,pca_dim,self.verbose,self.log)
+        init_clustering(emb,reso=self.reso,cluster_method=cluster_method,verbose=self.verbose,log=self.log)
+        
+        self.batch_index=normalized_adata.obs[batch_key].values
+        normalized_adata.obs["init_cluster"]=emb.obs["init_cluster"].values.copy()
+        self.num_init_cluster=len(emb.obs["init_cluster"].value_counts())
+        if(self.verbose):
+            self.log.info("Preprocess Dataset Done...")
+        return normalized_adata
+
+    ### convert normalized adata to training data for scDML    
+    def convertInput(self,adata,batch_key="BATCH"):
+        """
+            convert normalized adata to training data
+            Argument:
+            ------------------------------------------------------------------
+            - adata: `anndata.AnnData`, normalized adata
+            - batch_key: `str`, string specifying the batch name in adata.obs
+        """
+        checkInput(adata,batch_key=batch_key,log=self.log)# check batch
+        if("X_pca" not in adata.obsm.keys()): # check pca
+            sc.tl.pca(adata)
+        if("init_cluster" not in adata.obs.columns): # check init clustering
+            sc.pp.neighbors(adata,random_state=0)
+            sc.tl.louvain(adata,key_added="init_cluster",resolution=3.0)   #
+
+        if(issparse(adata.X)):  
+            self.train_X=adata.X.toarray()
         else:
-            if(self.verbose):
-                self.log.info("dataset is not preprocessed,run 'preprocess()' function to preprocess...")
-                self.log.info("Running preprocess() function...")
-            if(batch_key is None):
-                batch_key=self.batch_key
+            self.train_X=adata.X.copy()
+        self.nbatch=len(adata.obs[batch_key].value_counts())
+        self.train_label=adata.obs["init_cluster"].values.copy()
+        self.emb_matrix=adata.obsm["X_pca"].copy()
+        self.batch_index=adata.obs[batch_key].values
+        self.merge_df=pd.DataFrame(adata.obs["init_cluster"])
 
-            self.norm_args = (batch_key,n_high_var,hvg_list,normalize_samples,target_sum,log_normalize, normalize_features,scale_value,self.verbose,self.log)
-            normalized_adata = Normalization(adata,*self.norm_args)
-            self.batch_index=normalized_adata.obs[batch_key].values
-            
-            emb=dimension_reduction(normalized_adata,pca_dim,self.verbose,self.log)
-            init_clustering(emb,reso=self.reso,cluster_method=cluster_method,verbose=self.verbose,log=self.log)
-            self.emb_matrix=emb.X
-            if(issparse(normalized_adata.X)):  
-                self.train_X=normalized_adata.X.toarray() #
-            else:
-                self.train_X=normalized_adata.X.copy()
-            self.train_label= emb.obs["init_cluster"].values.copy()
-            normalized_adata.obs["init_cluster"]=emb.obs["init_cluster"].values.copy()
-            self.merge_df=pd.DataFrame(emb.obs["init_cluster"])
-            self.num_init_cluster=len(emb.obs["init_cluster"].value_counts())
-            self.norm_data=normalized_adata
-            if(self.verbose):
-                self.log.info("Preprocess Dataset Done...")
-            return normalized_adata
-           
+    ### alculate connectivity      
     def calculate_similarity(self,K_in=5,K_bw=10,K_in_metric="cosine",K_bw_metric="cosine"):
         """
         calculate connectivity of cluster with KNN and MNN pair for scDML
@@ -135,7 +141,6 @@ class scDMLModel:
             self.log.info("K_in={},K_bw={}".format(K_in,K_bw))
             self.log.info("Calculate similarity of cluster with KNN and MNN")
         if(self.nbatch<10):
-        #if(True):
             if(self.verbose):
                 self.log.info("appoximate calculate KNN Pair intra batch...")
             knn_intra_batch_approx=get_dict_mnn(data_matrix=self.emb_matrix,batch_index=self.batch_index,k=K_in,flag="in",metric=K_in_metric,approx=True,return_distance=False,verbose=self.verbose,log=self.log)
@@ -148,7 +153,7 @@ class scDMLModel:
                 self.log.info("Find All Nearest Neighbours Done....")   
         else:
             if(self.verbose):
-                self.log.info("calculate KNN and MNN pair in parallel mode!")
+                self.log.info("calculate KNN and MNN pair in parallel mode to accelerate!")
                 self.log.info("appoximate calculate KNN Pair intra batch...")
             knn_intra_batch_approx=get_dict_mnn_para(data_matrix=self.emb_matrix,batch_index=self.batch_index,k=K_in,flag="in",metric=K_in_metric,approx=True,return_distance=False,verbose=self.verbose,log=self.log)
             knn_intra_batch=np.array(knn_intra_batch_approx)
@@ -176,7 +181,6 @@ class scDMLModel:
         
         - merger_rule : 'str', default:"rule2", scDML implemented two type of merge rule, in mose case, two rules will generate same result.
         ------------------------------------------------------------------
-
         Return:
         merge_df: "pd.DataFrame", label of merge cluster with differnt number of cluster.
         """
@@ -240,8 +244,8 @@ class scDMLModel:
             self.log.info(self.model)
             self.log.info("Build Embedding Net Done...")
     
-    def train(self,expect_num_cluster=None,merge_rule="rule2",num_epochs=50,batch_size=64,early_stop=False,
-              metric="euclidean",margin=0.2,triplet_type="hard",device=None,save_model=True):
+    def train(self,expect_num_cluster=None,merge_rule="rule2",num_epochs=50,batch_size=64,early_stop=False,patience=5,delta=50,
+              metric="euclidean",margin=0.2,triplet_type="hard",device=None,save_model=False):
         """
         training scDML with triplet loss
         Argument:
@@ -255,13 +259,17 @@ class scDMLModel:
         
         -early_stop: embedding net will stop to train with consideration of the rule of early stop when early top is true
         
+        -patience:  default 5. How long to wait after last time validation loss improved.
+
+        -delta: default 50, Minimum change in the monitored quantity(number of hard triplet) to qualify as an improvement.
+    
         -metric: default(str) "euclidean", the type of distance to be used to calculate triplet loss
         
         -margin: the hyperparmeters which is used to calculate triplet loss
         
         -triplet_type: the type of triplets will to used to be mined and optimized the triplet loss
         
-        -do_umap: default True, do umap visulization for embedding
+        -save model: whether to save model after scDML training
         ------------------------------------------------------------------
 
         Return:
@@ -321,7 +329,8 @@ class scDMLModel:
             else:
                 self.log.info("Not implemented,to be updated")
                 raise IOError
-            reducer = reducers.ThresholdReducer(low = 0)#reducer: reduce the loss between all triplet(mean)
+            #reducer: reduce the loss between all triplet(mean)
+            reducer = reducers.ThresholdReducer(low = 0)
             #Define Loss function
             loss_func = losses.TripletMarginLoss(margin = margin, distance = distance, reducer = reducer)
             #Define miner_function
@@ -329,45 +338,55 @@ class scDMLModel:
 
             if(self.verbose):        
                 self.log.info("use {} distance and {} triplet to train model".format(metric,triplet_type))
-            train_epoch_loss=np.array([])#
             mined_epoch_triplet=np.array([])#
-            for epoch in range(1, num_epochs+1):
-                temp_epoch_loss=0
-                temp_num_triplet=0
-                self.model.train()
-                for batch_idx, (train_data, training_labels) in enumerate(train_loader):
-                    train_data, training_labels = train_data.to(device), training_labels.to(device)
-                    optimizer.zero_grad()
-                    embeddings = self.model(train_data)
-                    indices_tuple = mining_func(embeddings, training_labels)
-                    loss = loss_func(embeddings, training_labels, indices_tuple)
-                    temp_epoch_loss=temp_epoch_loss+loss.item()
-                    temp_num_triplet=temp_num_triplet+indices_tuple[0].size(0)
-                    loss.backward()
-                    optimizer.step()
-                # if epoch % 100==0:
-                #     with torch.no_grad():
-                #         self.model.eval()
-                #         train_embeddings = self.model(torch.FloatTensor(self.train_X).to(device)).cpu().numpy()
-                #         train_labels=self.train_label.astype(int)
-                #         visulize_encode(train_embeddings,train_labels,self.celltype,self.BATCH,epoch,"../figures/",False,"Full")
-                mined_epoch_triplet=np.append(mined_epoch_triplet,temp_num_triplet)
-                train_epoch_loss=np.append(train_epoch_loss,temp_epoch_loss) 
+            if(not early_stop):
                 if(self.verbose):
-                    self.log.info("epoch={},triplet_loss={},number_hard_triplet={}".format(epoch,temp_epoch_loss,temp_num_triplet))
+                    self.log.info("not use earlystopping!!!!")
+                for epoch in range(1, num_epochs+1):
+                    temp_epoch_loss=0
+                    temp_num_triplet=0
+                    self.model.train()
+                    for batch_idx, (train_data, training_labels) in enumerate(train_loader):
+                        train_data, training_labels = train_data.to(device), training_labels.to(device)
+                        optimizer.zero_grad()
+                        embeddings = self.model(train_data)
+                        indices_tuple = mining_func(embeddings, training_labels)
+                        loss = loss_func(embeddings, training_labels, indices_tuple)
+                        temp_num_triplet=temp_num_triplet+indices_tuple[0].size(0)
+                        loss.backward()
+                        optimizer.step()
 
+                    mined_epoch_triplet=np.append(mined_epoch_triplet,temp_num_triplet)
+                    if(self.verbose):
+                        self.log.info("epoch={},number_hard_triplet={}".format(epoch,temp_num_triplet))
+            else:
+                if(self.verbose):
+                    self.log.info("use earlystopping!!!!")
+                early_stopping = EarlyStopping(patience=patience, delta=delta,verbose=True,path=self.save_dir+"checkpoint.pt",trace_func=self.log.info)
+                for epoch in range(1, num_epochs+1):
+                    temp_epoch_loss=0
+                    temp_num_triplet=0
+                    self.model.train()
+                    for batch_idx, (train_data, training_labels) in enumerate(train_loader):
+                        train_data, training_labels = train_data.to(device), training_labels.to(device)
+                        optimizer.zero_grad()
+                        embeddings = self.model(train_data)
+                        indices_tuple = mining_func(embeddings, training_labels)
+                        loss = loss_func(embeddings, training_labels, indices_tuple)
+                        temp_num_triplet=temp_num_triplet+indices_tuple[0].size(0)
+                        loss.backward()
+                        optimizer.step()
+                    early_stopping(temp_num_triplet, self.model)#
+        
+                    if early_stopping.early_stop:
+                        self.log.info("Early stopping")
+                        break
+
+                    mined_epoch_triplet=np.append(mined_epoch_triplet,temp_num_triplet)
+                    if(self.verbose):
+                        self.log.info("epoch={},number_hard_triplet={}".format(epoch,temp_num_triplet))
             if(self.verbose):
                 self.log.info("scDML training done....")
-            # if(self.verbose):
-            #     print("plot number of mined triplets in all epochs")
-            #     plt.figure(figsize=(6,4))
-            #     plt.plot(range(1,len(mined_epoch_triplet)+1),mined_epoch_triplet,c="r")
-            #     plt.title("scDML loss(epoch)")
-            #     plt.xlabel("epoch")
-            #     plt.ylabel("mined hard triplets")
-            #     plt.savefig(self.save_dir+"/mined_num_triplet_epoch.png")
-            #     plt.show()
-            
             ##### save embedding model
             if(save_model):
                 if(self.verbose):
@@ -375,29 +394,28 @@ class scDMLModel:
                 torch.save(self.model.to(torch.device("cpu")),os.path.join(self.save_dir,"scDML_model.pkl"))
 
         ##### generate embeding
+        self.loss=mined_epoch_triplet
         features=self.predict(self.train_X)
-        embedding=sc.AnnData(features)
-        embedding.obsm["X_emb"]=features
-        embedding.obs=self.norm_data.obs
-        embedding.obs["reassign_cluster"]=self.train_label.astype(int).astype(str)
-        embedding.obs["reassign_cluster"]=embedding.obs["reassign_cluster"].astype("category")
-        return embedding
+        return features
 
-    def predict(self,X):
+
+    def predict(self,X,batch_size=128):
         """
         prediction for data matrix(produce embedding)
         Argument:
         ------------------------------------------------------------------
         X: data matrix fo dataset
+        batch_size: batch_size for dataloader
         ------------------------------------------------------------------
         """
         if(self.verbose):
             self.log.info("extract embedding for dataset with trained network")
         device=torch.device("cpu")    
         dataloader = DataLoader(
-            torch.FloatTensor(X), batch_size=128, pin_memory=False, shuffle=False
+            torch.FloatTensor(X), batch_size=batch_size, pin_memory=False, shuffle=False
         )
         data_iterator = tqdm(dataloader, leave=False, unit="batch")
+        self.model=self.model.to(device)
         with torch.no_grad():
             self.model.eval()
             features = []
@@ -410,28 +428,41 @@ class scDMLModel:
             features=torch.cat(features).cpu().numpy()
         return features
 
-    ##### integrate all step into one function #####
-    def full_run(self,adata,resolution=3.0,ncluster_list=[3],expect_num_cluster=None,batch_key="BATCH",K_in=5,K_bw=10,cluster_method="louvain",merge_rule="rule2",preprocessed=False,num_epochs=50):
-        # preprocess dataset
-        start_time=time()
-        self.preprocess(adata=adata,preprocessed=preprocessed,batch_key=batch_key,resolution=resolution,cluster_method=cluster_method)
-        print("preprocess done...cost time={}s".format(time()-start_time))    
+    ##### integration for scDML
+    def integrate(self,adata,batch_key="BATCH",ncluster_list=[3],expect_num_cluster=None,K_in=5,K_bw=10,K_in_metric="cosine",K_bw_metric="cosine",merge_rule="rule2",num_epochs=50,
+                  projection=False,early_stop=False,batch_size=64,metric="euclidean",margin=0.2,triplet_type="hard",device=None,seed=1029,out_dim=32,emb_dim=[256],save_model=False):
+        """
+        batch alignment for integration with scDML
+        Argument:
+        ------------------------------------------------------------------
+        adata: normalized adata
+        ....
+        ....
+        ....
+        ------------------------------------------------------------------
+        """
+
+        #start_time=time()
+        # covert adata to training data
+        self.convertInput(adata,batch_key=batch_key)
+        #print("convert input...cost time={}s".format(time()-start_time))  
         # calculate similarity between cluster
-        self.calculate_similarity(K_in=K_in,K_bw=K_bw)
-        print("calculate similarity matrix done...cost time={}s".format(time()-start_time))    
+        self.calculate_similarity(K_in=K_in,K_bw=K_bw,K_in_metric=K_in_metric,K_bw_metric=K_bw_metric)
+        #print("calculate similarity matrix done...cost time={}s".format(time()-start_time))    
         # merge cluster and reassign cluster label
         self.merge_cluster(ncluster_list=ncluster_list,merge_rule=merge_rule)
-        print("reassign cluster label done...cost time={}s".format(time()-start_time))    
+        #print("reassign cluster label done...cost time={}s".format(time()-start_time))    
         # build Embeddding Net for scDML
-        self.build_net()
-        print("construct network done...cost time={}s".format(time()-start_time))    
+        self.build_net(out_dim=out_dim,emb_dim=emb_dim,projection=projection,seed=seed)
+        #print("construct network done...cost time={}s".format(time()-start_time))    
         # train scDML to remove batch effect
-        embedding=self.train(expect_num_cluster=expect_num_cluster,num_epochs=num_epochs)
-        print("train neural network done...cost time={}s".format(time()-start_time)) 
-        # evaluate scDML correction result
-        #scdml_eva=self.evaluate(ncelltype=3)
-        #print("all done")
-        return embedding
+        features=self.train(expect_num_cluster=expect_num_cluster,num_epochs=num_epochs,early_stop=early_stop,batch_size=batch_size,metric=metric,margin=margin,triplet_type=triplet_type,device=device,save_model=save_model)
+        #print("train neural network done...cost time={}s".format(time()-start_time)) 
+        # save result
+        adata.obsm["X_emb"]=features
+        adata.obs["reassign_cluster"]=self.train_label.astype(int).astype(str)
+        adata.obs["reassign_cluster"]=adata.obs["reassign_cluster"].astype("category")
+
 
         
 
