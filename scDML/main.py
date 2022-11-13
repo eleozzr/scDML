@@ -392,9 +392,9 @@ class scDMLModel:
                 if(self.verbose):
                     self.log.info("save model....")
                 torch.save(self.model.to(torch.device("cpu")),os.path.join(self.save_dir,"scDML_model.pkl"))
-
+            self.loss=mined_epoch_triplet
         ##### generate embeding
-        self.loss=mined_epoch_triplet
+
         features=self.predict(self.train_X)
         return features
 
