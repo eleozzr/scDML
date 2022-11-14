@@ -18,7 +18,7 @@ warnings.filterwarnings('ignore')
 ro.r.source('scDML/batchKL.R')
 ro.r.source('scDML/calLISI.R')
 from time import time
-from sklearn.metrics.cluster import adjusted_rand_score,normalized_mutual_info_score
+from sklearn.metrics.cluster import normalized_mutual_info_score
 from sklearn.metrics.cluster import pair_confusion_matrix
 
 # sklearn ari bug

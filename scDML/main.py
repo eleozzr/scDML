@@ -279,25 +279,17 @@ class scDMLModel:
         """
         if(expect_num_cluster is None): 
             if(self.verbose):
-                self.log.info("expect_num_cluster is None, use default threshold...")
-            threshold=self.nn_matrix.to_numpy().sum()/(self.K_bw+self.K_in)/self.train_X.shape[0]/2.0
-            if(merge_rule == "rule2"):
-                map_set=merge_rule2(self.cor_matrix.copy(),self.nn_matrix.copy(),self.merge_df["init_cluster"].value_counts().values.copy(),verbose=self.verbose,threshold=threshold,log=self.log)
-                expect_num_cluster=len(map_set)
-                map_dict={}
-                for index,item in enumerate(map_set):
-                    for c in item:
-                        map_dict[str(c)]=index
-                self.merge_df["nc_"+str(expect_num_cluster)]=self.merge_df["init_cluster"].map(map_dict)
-            elif(merge_rule == "rule1"):
-                map_set=merge_rule1(self.cor_matrix.copy(),self.num_init_cluster,threshold=threshold)
-                expect_num_cluster=len(map_set)
-                map_dict={}
-                for index,item in enumerate(map_set):
-                    for c in item:
-                        map_dict[str(c)]=index
-                self.merge_df["nc_"+str(expect_num_cluster)]=self.merge_df["init_cluster"].map(map_dict)
-        
+                self.log.info("expect_num_cluster is None, use eigen value gap to estimate the number of celltype......")
+            
+            cor_matrix=self.cor_matrix.copy()
+            for i in range(len(cor_matrix)):
+                cor_matrix.loc[i,i]=0.0
+
+            k, _,  _ = eigenDecomposition(cor_matrix.values/np.max(cor_matrix.values),save_dir=self.save_dir)
+            self.log.info(f'Optimal number of clusters {k}')
+            ## dafault to select the top one
+            expect_num_cluster=k[0]
+
         if("nc_"+str(expect_num_cluster) not in self.merge_df):
             self.log.info("scDML can't find the mering result of cluster={} ,you can run merge_cluster(fixed_ncluster={}) function to get this".format(expect_num_cluster,expect_num_cluster))
             raise IOError
