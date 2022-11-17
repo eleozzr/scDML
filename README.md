@@ -34,7 +34,7 @@ environment 1
 conda create -n scDML python==3.6.10
 conda activate scDML
 ```
-environment2
+environment 2
 ```bash
 conda create -n scDML python==3.8.12
 conda activate scDML
