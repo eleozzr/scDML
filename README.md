@@ -27,12 +27,19 @@ The following notebooks show you how to run scDML
 ### Step1 
 
 1. Install [Anaconda](https://www.anaconda.com/products/individual) if you do not have it.
-2. Create a conda environment with python, and then activate it as follows in terminal.
+2. Create a conda environment with python, and then activate it as follows in terminal. we have test two environment on linux
 
+environment 1
 ```bash
 conda create -n scDML python==3.6.10
 conda activate scDML
 ```
+environment2
+```bash
+conda create -n scDML python==3.8.12
+conda activate scDML
+```
+
 
 ### Step2
 
