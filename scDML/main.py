@@ -39,7 +39,7 @@ class scDMLModel:
     
     ###  preprocess raw data to generate init cluster label 
     def preprocess(self,adata,cluster_method="louvain",resolution=3.0,batch_key="BATCH",n_high_var = 1000,hvg_list=None,normalize_samples = True,target_sum=1e4,log_normalize = True,
-                   normalize_features = True,pca_dim=100,scale_value=10.0,num_cluster=50):
+                   normalize_features = True,pca_dim=100,scale_value=10.0,num_cluster=50,mode="unsupervised"):
         """
         Preprocessing raw dataset
         Argument:
@@ -73,56 +73,92 @@ class scDMLModel:
         Return:
         - normalized adata suitable for integration of scDML in following stage.  
         """
-        batch_key=checkInput(adata,batch_key,self.log)
-        self.batch_key=batch_key
-        self.reso=resolution
-        self.cluster_method=cluster_method 
-        self.nbatch=len(adata.obs[batch_key].value_counts())
-        if(self.verbose):        
-            self.log.info("Running preprocess() function...")
-            self.log.info("clustering method={}".format(cluster_method))
-            self.log.info("resolution={}".format(str(resolution)))
-            self.log.info("BATCH_key={}".format(str(batch_key)))
+        if(mode=="unsupervised"):
+            batch_key=checkInput(adata,batch_key,self.log)
+            self.batch_key=batch_key
+            self.reso=resolution
+            self.cluster_method=cluster_method 
+            self.nbatch=len(adata.obs[batch_key].value_counts())
+            if(self.verbose):        
+                self.log.info("Running preprocess() function...")
+                self.log.info("mode={}".format(mode))
+                self.log.info("clustering method={}".format(cluster_method))
+                self.log.info("resolution={}".format(str(resolution)))
+                self.log.info("BATCH_key={}".format(str(batch_key)))
 
-        self.norm_args = (batch_key,n_high_var,hvg_list,normalize_samples,target_sum,log_normalize, normalize_features,scale_value,self.verbose,self.log)
-        normalized_adata = Normalization(adata,*self.norm_args)
-        emb=dimension_reduction(normalized_adata,pca_dim,self.verbose,self.log)
-        init_clustering(emb,reso=self.reso,cluster_method=cluster_method,verbose=self.verbose,log=self.log)
-        
-        self.batch_index=normalized_adata.obs[batch_key].values
-        normalized_adata.obs["init_cluster"]=emb.obs["init_cluster"].values.copy()
-        self.num_init_cluster=len(emb.obs["init_cluster"].value_counts())
-        if(self.verbose):
-            self.log.info("Preprocess Dataset Done...")
-        return normalized_adata
+            self.norm_args = (batch_key,n_high_var,hvg_list,normalize_samples,target_sum,log_normalize, normalize_features,scale_value,self.verbose,self.log)
+            normalized_adata = Normalization(adata,*self.norm_args)
+            emb=dimension_reduction(normalized_adata,pca_dim,self.verbose,self.log)
+            init_clustering(emb,reso=self.reso,cluster_method=cluster_method,verbose=self.verbose,log=self.log)
+            
+            self.batch_index=normalized_adata.obs[batch_key].values
+            normalized_adata.obs["init_cluster"]=emb.obs["init_cluster"].values.copy()
+            self.num_init_cluster=len(emb.obs["init_cluster"].value_counts())
+            if(self.verbose):
+                self.log.info("Preprocess Dataset Done...")
+            return normalized_adata
+        elif(mode=="supervised"):
+            batch_key=checkInput(adata,batch_key,self.log)
+            self.batch_key=batch_key
+            self.reso=resolution
+            self.cluster_method=cluster_method 
+            self.nbatch=len(adata.obs[batch_key].value_counts())
+            self.norm_args = (batch_key,n_high_var,hvg_list,normalize_samples,target_sum,log_normalize, normalize_features,scale_value,self.verbose,self.log)
+            normalized_adata = Normalization(adata,*self.norm_args)
+            if(self.verbose):
+                self.log.info("mode={}".format(mode))
+                self.log.info("BATCH_key={}".format(str(batch_key)))
+                self.log.info("Preprocess Dataset Done...")
+            return normalized_adata
 
     ### convert normalized adata to training data for scDML    
-    def convertInput(self,adata,batch_key="BATCH"):
+    def convertInput(self,adata,batch_key="BATCH",celltype_key=None,mode="unsupervised"): 
         """
             convert normalized adata to training data
             Argument:
             ------------------------------------------------------------------
             - adata: `anndata.AnnData`, normalized adata
             - batch_key: `str`, string specifying the batch name in adata.obs
+            - mode : "str", "unsupervised" or "supervised"
         """
-        checkInput(adata,batch_key=batch_key,log=self.log)# check batch
-        if("X_pca" not in adata.obsm.keys()): # check pca
-            sc.tl.pca(adata)
-        if("init_cluster" not in adata.obs.columns): # check init clustering
-            sc.pp.neighbors(adata,random_state=0)
-            sc.tl.louvain(adata,key_added="init_cluster",resolution=3.0)   #
+        if(mode=="unsupervised"):
+            checkInput(adata,batch_key=batch_key,log=self.log)# check batch
+            if("X_pca" not in adata.obsm.keys()): # check pca
+                sc.tl.pca(adata)
+            if("init_cluster" not in adata.obs.columns): # check init clustering
+                sc.pp.neighbors(adata,random_state=0)
+                sc.tl.louvain(adata,key_added="init_cluster",resolution=3.0)   #
 
-        if(issparse(adata.X)):  
-            self.train_X=adata.X.toarray()
-        else:
-            self.train_X=adata.X.copy()
-        self.nbatch=len(adata.obs[batch_key].value_counts())
-        self.train_label=adata.obs["init_cluster"].values.copy()
-        self.emb_matrix=adata.obsm["X_pca"].copy()
-        self.batch_index=adata.obs[batch_key].values
-        self.merge_df=pd.DataFrame(adata.obs["init_cluster"])
+            if(issparse(adata.X)):  
+                self.train_X=adata.X.toarray()
+            else:
+                self.train_X=adata.X.copy()
+            self.nbatch=len(adata.obs[batch_key].value_counts())
+            self.train_label=adata.obs["init_cluster"].values.copy()
+            self.emb_matrix=adata.obsm["X_pca"].copy()
+            self.batch_index=adata.obs[batch_key].values
+            self.merge_df=pd.DataFrame(adata.obs["init_cluster"])
 
-    ### alculate connectivity      
+            if(celltype_key is not None):
+                self.celltype=adata.obs[celltype_key].values#
+            else:
+                self.celltype=None
+        elif(mode=="supervised"): 
+            if(celltype_key is None): # check celltype_key
+                self.log.info("please provide celltype key in supervised mode!!!")
+                raise IOError
+            if(issparse(adata.X)):  
+                self.train_X=adata.X.toarray()
+            else:
+                self.train_X=adata.X.copy()
+
+            self.celltype=adata.obs[celltype_key].values#
+            self.ncluster=len(adata.obs[celltype_key].value_counts())
+            self.merge_df=pd.DataFrame()
+            self.merge_df["nc_"+str(self.ncluster)]=self.celltype
+            self.merge_df["nc_"+str(self.ncluster)]=self.merge_df["nc_"+str(self.ncluster)].astype("category").cat.codes
+            
+    ### calculate connectivity      
     def calculate_similarity(self,K_in=5,K_bw=10,K_in_metric="cosine",K_bw_metric="cosine"):
         """
         calculate connectivity of cluster with KNN and MNN pair for scDML
@@ -169,6 +205,23 @@ class scDMLModel:
         self.cor_matrix,self.nn_matrix=cal_sim_matrix(knn_intra_batch,mnn_inter_batch,self.train_label,self.verbose,self.log)
         if(self.verbose):
             self.log.info("Calculate Similarity Matrix Done....")
+
+        if(self.celltype is not None):
+            same_celltype=self.celltype[mnn_inter_batch[:,0]]==self.celltype[mnn_inter_batch[:,1]]
+            equ_pair=sum(same_celltype)
+            self.log.info("the number of mnnpair which link same celltype is {}".format(equ_pair))
+            equ_ratio=sum(self.celltype[mnn_inter_batch[:,1]]==self.celltype[mnn_inter_batch[:,0]])/same_celltype.shape[0]
+            self.log.info("the ratio of mnnpair which link same celltype is {}".format(equ_ratio))
+            df=pd.DataFrame({"celltype_pair1":self.celltype[mnn_inter_batch[:,0]],"celltype_pair2":self.celltype[mnn_inter_batch[:,1]]})
+            num_info=pd.crosstab(df["celltype_pair1"],df["celltype_pair2"],margins=True,margins_name="Total")
+            ratio_info=pd.crosstab(df["celltype_pair1"],df["celltype_pair2"]).apply(lambda r: r/r.sum(), axis=1)
+            num_info.to_csv(self.save_dir+"mnn_pair_num_info.csv")
+            ratio_info.to_csv(self.save_dir+"mnn_pair_ratio_info.csv")
+            self.log.info(num_info)
+            self.log.info(ratio_info)
+            #self.log.info("the number of mnnpair which link same celltype is {}".format(np.sum(num_info.values[:-1,:-1].diagonal())))
+            #if(do_plot):
+            #  plotNNpair(self.pca_emb.obsm["X_umap"],mnn_inter_batch,self.BATCH,flag="out",save_dir=self.save_dir)
         return knn_intra_batch,mnn_inter_batch,self.cor_matrix,self.nn_matrix
  
         
@@ -245,7 +298,7 @@ class scDMLModel:
             self.log.info("Build Embedding Net Done...")
     
     def train(self,expect_num_cluster=None,merge_rule="rule2",num_epochs=50,batch_size=64,early_stop=False,patience=5,delta=50,
-              metric="euclidean",margin=0.2,triplet_type="hard",device=None,save_model=False):
+              metric="euclidean",margin=0.2,triplet_type="hard",device=None,save_model=False,mode="unsupervised"):
         """
         training scDML with triplet loss
         Argument:
@@ -270,6 +323,9 @@ class scDMLModel:
         -triplet_type: the type of triplets will to used to be mined and optimized the triplet loss
         
         -save model: whether to save model after scDML training
+        
+        -mode: if mode=="unsupervised", scDML will use the result of merge rule with similarity matrix
+               if mode=="supervised", scDML will use the true label of celltype to integrate dataset
         ------------------------------------------------------------------
 
         Return:
@@ -277,24 +333,27 @@ class scDMLModel:
         -embedding: default:AnnData, anndata with batch effect removal after scDML training
         ------------------------------------------------------------------
         """
-        if(expect_num_cluster is None): 
-            if(self.verbose):
-                self.log.info("expect_num_cluster is None, use eigen value gap to estimate the number of celltype......")
-            
-            cor_matrix=self.cor_matrix.copy()
-            for i in range(len(cor_matrix)):
-                cor_matrix.loc[i,i]=0.0
-
-            k, _,  _ = eigenDecomposition(cor_matrix.values/np.max(cor_matrix.values),save_dir=self.save_dir)
-            self.log.info(f'Optimal number of clusters {k}')
-            ## dafault to select the top one
-            expect_num_cluster=k[0]
-
-        if("nc_"+str(expect_num_cluster) not in self.merge_df):
-            self.log.info("scDML can't find the mering result of cluster={} ,you can run merge_cluster(fixed_ncluster={}) function to get this".format(expect_num_cluster,expect_num_cluster))
+        if(mode=="unsupervised"):
+            if(expect_num_cluster is None): 
+                if(self.verbose):
+                    self.log.info("expect_num_cluster is None, use eigen value gap to estimate the number of celltype......")
+                cor_matrix=self.cor_matrix.copy()
+                for i in range(len(cor_matrix)):
+                    cor_matrix.loc[i,i]=0.0
+                k, _,  _ = eigenDecomposition(cor_matrix.values/np.max(cor_matrix.values),save_dir=self.save_dir)
+                self.log.info(f'Optimal number of clusters {k}')
+                ## dafault to select the top one
+                expect_num_cluster=k[0]
+            if("nc_"+str(expect_num_cluster) not in self.merge_df):
+                self.log.info("scDML can't find the mering result of cluster={} ,you can run merge_cluster(fixed_ncluster={}) function to get this".format(expect_num_cluster,expect_num_cluster))
+                raise IOError
+            self.train_label=self.merge_df["nc_"+str(expect_num_cluster)].values.astype(int)
+        elif(mode=="supervised"):
+            expect_num_cluster=self.ncluster
+            self.train_label=self.merge_df["nc_"+str(expect_num_cluster)].values.astype(int)
+        else:
+            self.log.info("Not implemented!!!")
             raise IOError
-        self.train_label=self.merge_df["nc_"+str(expect_num_cluster)].values.astype(int)
-
         if os.path.isfile(os.path.join(self.save_dir,"scDML_model.pkl")):
             self.log.info("Loading trained model...")
             self.model=torch.load(os.path.join(self.save_dir,"scDML_model.pkl"))
@@ -308,8 +367,7 @@ class scDMLModel:
                     if(torch.cuda.is_available()):
                         self.log.info("using GPU to train model")
                     else:
-                        self.log.info("using CPU to train model")
-                    
+                        self.log.info("using CPU to train model")        
             train_set = torch.utils.data.TensorDataset(torch.FloatTensor(self.train_X), torch.from_numpy(self.train_label).long())
             train_loader = DataLoader(train_set, batch_size=batch_size, num_workers=0,shuffle=True)
             self.model=self.model.to(device)
@@ -327,7 +385,6 @@ class scDMLModel:
             loss_func = losses.TripletMarginLoss(margin = margin, distance = distance, reducer = reducer)
             #Define miner_function
             mining_func = miners.TripletMarginMiner(margin = margin, distance = distance, type_of_triplets = triplet_type)
-
             if(self.verbose):        
                 self.log.info("use {} distance and {} triplet to train model".format(metric,triplet_type))
             mined_epoch_triplet=np.array([])#
@@ -422,35 +479,51 @@ class scDMLModel:
 
     ##### integration for scDML
     def integrate(self,adata,batch_key="BATCH",ncluster_list=[3],expect_num_cluster=None,K_in=5,K_bw=10,K_in_metric="cosine",K_bw_metric="cosine",merge_rule="rule2",num_epochs=50,
-                  projection=False,early_stop=False,batch_size=64,metric="euclidean",margin=0.2,triplet_type="hard",device=None,seed=1029,out_dim=32,emb_dim=[256],save_model=False):
+                  projection=False,early_stop=False,batch_size=64,metric="euclidean",margin=0.2,triplet_type="hard",device=None,seed=1029,out_dim=32,emb_dim=[256],save_model=False,celltype_key=None,mode="unsupervised"):
         """
         batch alignment for integration with scDML
         Argument:
         ------------------------------------------------------------------
         adata: normalized adata
+        celltype_key: evaluate the ratio of mnn pair or used in supervised mode
+        mode : default str,"unsupervised", user can choose  "unsupervised" or "supervised"
         ....
         ....
         ....
         ------------------------------------------------------------------
         """
-
+        self.log.info("mode={}".format(mode))
         #start_time=time()
-        # covert adata to training data
-        self.convertInput(adata,batch_key=batch_key)
-        #print("convert input...cost time={}s".format(time()-start_time))  
-        # calculate similarity between cluster
-        self.calculate_similarity(K_in=K_in,K_bw=K_bw,K_in_metric=K_in_metric,K_bw_metric=K_bw_metric)
-        #print("calculate similarity matrix done...cost time={}s".format(time()-start_time))    
-        # merge cluster and reassign cluster label
-        self.merge_cluster(ncluster_list=ncluster_list,merge_rule=merge_rule)
-        #print("reassign cluster label done...cost time={}s".format(time()-start_time))    
-        # build Embeddding Net for scDML
-        self.build_net(out_dim=out_dim,emb_dim=emb_dim,projection=projection,seed=seed)
-        #print("construct network done...cost time={}s".format(time()-start_time))    
-        # train scDML to remove batch effect
-        features=self.train(expect_num_cluster=expect_num_cluster,num_epochs=num_epochs,early_stop=early_stop,batch_size=batch_size,metric=metric,margin=margin,triplet_type=triplet_type,device=device,save_model=save_model)
-        #print("train neural network done...cost time={}s".format(time()-start_time)) 
-        # save result
+        if(mode=="unsupervised"):
+            # covert adata to training data
+            self.convertInput(adata,batch_key=batch_key,celltype_key=celltype_key,mode=mode)
+            #print("convert input...cost time={}s".format(time()-start_time))  
+            # calculate similarity between cluster
+            self.calculate_similarity(K_in=K_in,K_bw=K_bw,K_in_metric=K_in_metric,K_bw_metric=K_bw_metric)
+            #print("calculate similarity matrix done...cost time={}s".format(time()-start_time))    
+            # merge cluster and reassign cluster label
+            self.merge_cluster(ncluster_list=ncluster_list,merge_rule=merge_rule)
+            #print("reassign cluster label done...cost time={}s".format(time()-start_time))    
+            # build Embeddding Net for scDML
+            self.build_net(out_dim=out_dim,emb_dim=emb_dim,projection=projection,seed=seed)
+            #print("construct network done...cost time={}s".format(time()-start_time))    
+            # train scDML to remove batch effect
+            features=self.train(expect_num_cluster=expect_num_cluster,num_epochs=num_epochs,early_stop=early_stop,batch_size=batch_size,metric=metric,margin=margin,triplet_type=triplet_type,device=device,save_model=save_model,mode=mode)
+            #print("train neural network done...cost time={}s".format(time()-start_time)) 
+            # save result
+        elif(mode=="supervised"):
+            self.convertInput(adata,batch_key=batch_key,celltype_key=celltype_key,mode=mode)
+            # build Embeddding Net for scDML
+            self.build_net(out_dim=out_dim,emb_dim=emb_dim,projection=projection,seed=seed)
+            #print("construct network done...cost time={}s".format(time()-start_time))    
+            # train scDML to remove batch effect
+            features=self.train(expect_num_cluster=expect_num_cluster,num_epochs=num_epochs,early_stop=early_stop,batch_size=batch_size,metric=metric,margin=margin,triplet_type=triplet_type,device=device,save_model=save_model,mode=mode)
+            #print("train neural network done...cost time={}s".format(time()-start_time)) 
+            # save result
+        else:
+            self.log.info("Not implemented!!!")
+            raise IOError
+
         adata.obsm["X_emb"]=features
         adata.obs["reassign_cluster"]=self.train_label.astype(int).astype(str)
         adata.obs["reassign_cluster"]=adata.obs["reassign_cluster"].astype("category")
