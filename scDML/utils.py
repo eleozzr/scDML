@@ -26,7 +26,7 @@ from scipy.sparse import csgraph
 # from scipy.sparse.linalg import eigsh
 from numpy import linalg as LA
 
-def eigenDecomposition(A, plot = True, topK =3,save_dir=None):
+def eigenDecomposition(A, plot = True, topK =5,save_dir=None):
     """
     :param A: Affinity matrix
     :param plot: plots the sorted eigen values for visual inspection
@@ -55,10 +55,12 @@ def eigenDecomposition(A, plot = True, topK =3,save_dir=None):
     eigenvalues, eigenvectors = LA.eig(L)
     
     if plot:
+        fig = plt.figure(figsize=(15,12))
         plt.title('Largest eigen values of input matrix')
         plt.scatter(np.arange(len(eigenvalues)), eigenvalues)
         plt.grid()
-        plt.savefig(save_dir+"Estimation number of celltype in full dataset!!!")
+        plt.savefig(save_dir+"Estimate_number_of_cluster")
+        plt.show()
         
     # Identify the optimal number of clusters as the index corresponding
     # to the larger gap between eigen values

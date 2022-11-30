@@ -8,6 +8,7 @@ from .pytorchtools import EarlyStopping ## import earlytopping
 import os
 from time import time
 from scipy.sparse import issparse
+from numpy.linalg import matrix_power
 from tqdm import tqdm
 
 import torch.nn as nn
@@ -138,6 +139,8 @@ class scDMLModel:
             self.emb_matrix=adata.obsm["X_pca"].copy()
             self.batch_index=adata.obs[batch_key].values
             self.merge_df=pd.DataFrame(adata.obs["init_cluster"])
+            if(self.verbose):
+                self.merge_df.value_counts().to_csv(self.save_dir+"cluster_distribution.csv")
 
             if(celltype_key is not None):
                 self.celltype=adata.obs[celltype_key].values#
@@ -204,6 +207,10 @@ class scDMLModel:
             self.log.info("calculate similarity matrix between cluster")
         self.cor_matrix,self.nn_matrix=cal_sim_matrix(knn_intra_batch,mnn_inter_batch,self.train_label,self.verbose,self.log)
         if(self.verbose):
+            self.log.info("save cor matrix to file....")
+            self.cor_matrix.to_csv(self.save_dir+"cor_matrix.csv")
+            self.log.info("save nn pair matrix to file")
+            self.nn_matrix.to_csv(self.save_dir+"nn_matrix.csv")
             self.log.info("Calculate Similarity Matrix Done....")
 
         if(self.celltype is not None):
@@ -343,7 +350,17 @@ class scDMLModel:
                 cor_matrix=self.cor_matrix.copy()
                 for i in range(len(cor_matrix)):
                     cor_matrix.loc[i,i]=0.0
-                k, _,  _ = eigenDecomposition(cor_matrix.values/np.max(cor_matrix.values),save_dir=self.save_dir)
+                
+                    A=cor_matrix.values/np.max(cor_matrix.values)# normalize similarity matrix to [0,1]
+    
+                    # enhance the similarity structure
+                    norm_A=A+matrix_power(A,2) # 
+                    
+                    for i in range(len(A)):
+                        norm_A[i,i]=0.0
+                    #cor_matrix
+
+                k, _,  _ = eigenDecomposition(norm_A,save_dir=self.save_dir)
                 self.log.info(f'Optimal number of clusters {k}')
                 ## dafault to select the top one
                 expect_num_cluster=k[0]
