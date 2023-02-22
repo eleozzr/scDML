@@ -81,7 +81,7 @@ python -m ipykernel install --user --name scDML --display-name "Python_scDML"
 jupyter notebook
 ```
 
-## Software Requirements
+## Software Requirements for environment 2
 
 ```bash
 numba==0.51.2
