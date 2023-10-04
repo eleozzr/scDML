@@ -105,3 +105,4 @@ torch>=1.10.1
 ```
 
 ## Citation
+Yu, X., Xu, X., Zhang, J. et al. Batch alignment of single-cell transcriptomics data using deep metric learning. Nat Commun 14, 960 (2023). https://doi.org/10.1038/s41467-023-36635-5
