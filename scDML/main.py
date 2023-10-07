@@ -365,7 +365,7 @@ class scDMLModel:
                 ## dafault to select the top one
                 expect_num_cluster=k[0]
             if("nc_"+str(expect_num_cluster) not in self.merge_df):
-                self.log.info("scDML can't find the mering result of cluster={} ,you can run merge_cluster(fixed_ncluster={}) function to get this".format(expect_num_cluster,expect_num_cluster))
+                self.log.info("scDML can't find the mering result of cluster={} ,you can run merge_cluster(ncluster_list=[{}]) function to get this".format(expect_num_cluster,expect_num_cluster))
                 raise IOError
             self.train_label=self.merge_df["nc_"+str(expect_num_cluster)].values.astype(int)
         elif(mode=="supervised"):
